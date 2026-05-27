@@ -131,7 +131,8 @@ class TopKLowRankSteering(nn.Module):
                 valid_counts.append(len(row_log_pi))
 
         if not log_pi_values:
-            zero = next(self.parameters()).sum() * 0.0
+            trainable_param = next(param for param in self.parameters() if param.requires_grad)
+            zero = trainable_param.sum() * 0.0
             return SteeringBatch(
                 log_pi=zero.reshape(1),
                 log_ref=zero.detach().reshape(1),
