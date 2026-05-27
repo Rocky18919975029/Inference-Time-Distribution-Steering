@@ -217,7 +217,7 @@ def main() -> None:
         epoch += 1
         for examples in dataloader:
             with accelerator.accumulate(model):
-                steering_batch = model.encode_batch(tokenizer, examples, accelerator.device)
+                steering_batch = accelerator.unwrap_model(model).encode_batch(tokenizer, examples, accelerator.device)
                 loss, diagnostics = _loss_for_objective(config, steering_batch)
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
