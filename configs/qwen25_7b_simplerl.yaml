@@ -1,0 +1,44 @@
+model_name_or_path: Qwen/Qwen2.5-7B
+train_data_path: data/simplerl_train_with_ref.jsonl
+output_dir: outputs/qwen25_7b_simplerl_newline_subtb
+
+template: qwen-boxed
+alpha: 1.0
+beta: 1.0
+lambda_subtb: 1.0
+max_pairs_per_trace: 16
+
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 0.000002
+weight_decay: 0.0
+max_steps: 1000
+num_epochs: 0
+save_steps: 100
+logging_steps: 10
+gradient_clipping: 1.0
+bf16: true
+gradient_checkpointing: true
+seed: 1
+dataloader_num_workers: 0
+resume_from_checkpoint: null
+
+wandb_project: one_step_posttrain
+wandb_entity: null
+wandb_run_name: qwen25_7b_simplerl_newline_subtb
+wandb_run_id: null
+wandb_mode: null
+
+limit_of_rlvr_dir: limit-of-RLVR
+limit_data_dir: null
+eval_every_steps: 0
+eval_data_path: data/test.parquet
+eval_output_dir: null
+eval_benchmark: eval_test
+eval_prompt_type: qwen-boxed
+eval_seed: 1
+eval_max_samples: 128
+eval_n_sampling: 1
+eval_temperature: 0.0
+eval_top_p: 1.0
+eval_max_tokens: 1024

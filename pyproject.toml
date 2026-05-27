@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inference-time-distribution-steering"
+version = "0.1.0"
+description = "Top-k low-rank inference-time distribution steering for frozen language models."
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.2",
+  "transformers>=4.41",
+  "accelerate>=0.30",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+  "pandas>=2.2",
+  "pyarrow>=15.0",
+  "wandb>=0.17",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
