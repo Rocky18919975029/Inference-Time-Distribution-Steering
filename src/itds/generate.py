@@ -25,7 +25,9 @@ def generate_one(
         base_logits = output.logits[0, -1]
         hidden = output.hidden_states[-1][0, -1]
         top_values, top_ids = torch.topk(base_logits, k=min(model.top_k, base_logits.shape[-1]))
-        u = model.state_projector(hidden)
+        steering_dtype = model.state_projector[0].weight.dtype
+        top_values = top_values.to(dtype=steering_dtype)
+        u = model.state_projector(hidden.to(dtype=steering_dtype))
         steering = (model.token_basis(top_ids) * u.unsqueeze(0)).sum(dim=-1)
         logits = top_values + model.alpha * steering
         if temperature and temperature > 0:
@@ -49,4 +51,3 @@ def generate_one(
         generated.append(token_id)
         input_ids = torch.cat([input_ids, next_id.reshape(1, 1)], dim=-1)
     return tokenizer.decode(generated, skip_special_tokens=True)
-

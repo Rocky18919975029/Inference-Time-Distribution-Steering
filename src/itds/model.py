@@ -112,12 +112,15 @@ class TopKLowRankSteering(nn.Module):
                 if match.numel() == 0:
                     continue
                 match_index = int(match[0].item())
-                u = self.state_projector(hidden[row, pos])
+                steering_dtype = self.state_projector[0].weight.dtype
+                state = hidden[row, pos].to(dtype=steering_dtype)
+                top_values = top_values.to(dtype=steering_dtype)
+                u = self.state_projector(state)
                 steering = (self.token_basis(top_ids) * u.unsqueeze(0)).sum(dim=-1)
                 steered_logits = top_values + self.alpha * steering
                 row_log_pi.append(torch.log_softmax(steered_logits, dim=-1)[match_index])
                 row_log_ref.append(torch.log_softmax(top_values, dim=-1)[match_index])
-                row_values.append(self.value_head(hidden[row, pos]).squeeze(-1))
+                row_values.append(self.value_head(state).squeeze(-1))
 
             if row_log_pi:
                 log_pi_values.append(torch.stack(row_log_pi).sum())
