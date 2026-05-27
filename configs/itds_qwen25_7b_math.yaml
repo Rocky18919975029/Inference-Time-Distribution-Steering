@@ -24,5 +24,5 @@ resume_from_checkpoint: null
 wandb_project: itds
 wandb_entity: null
 wandb_run_name: null
+wandb_run_id: null
 wandb_mode: null
-

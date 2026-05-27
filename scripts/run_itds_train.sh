@@ -20,6 +20,8 @@ TOP_K="${TOP_K:-64}"
 RANK="${RANK:-32}"
 ALPHA="${ALPHA:-1.0}"
 BETA="${BETA:-0.1}"
+CLIP_EPSILON="${CLIP_EPSILON:-0.2}"
+VALUE_LOSS_WEIGHT="${VALUE_LOSS_WEIGHT:-0.1}"
 NUM_GPUS="${NUM_GPUS:-4}"
 MIXED_PRECISION="${MIXED_PRECISION:-bf16}"
 MAX_STEPS="${MAX_STEPS:-1000}"
@@ -29,17 +31,70 @@ LOGGING_STEPS="${LOGGING_STEPS:-10}"
 PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-2}"
 GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-8}"
 LEARNING_RATE="${LEARNING_RATE:-0.0001}"
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.0}"
+GRADIENT_CLIPPING="${GRADIENT_CLIPPING:-1.0}"
 RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-none}"
 WANDB_PROJECT="${WANDB_PROJECT:-itds}"
 WANDB_RUN_NAME="${WANDB_RUN_NAME:-itds_${OBJECTIVE}_topk${TOP_K}_r${RANK}}"
+WANDB_ENTITY="${WANDB_ENTITY:-}"
+WANDB_RUN_ID="${WANDB_RUN_ID:-}"
 WANDB_MODE="${WANDB_MODE:-}"
 
 mkdir -p "${OUTPUT_DIR}"
+
+python - <<PY
+import json
+from pathlib import Path
+
+payload = {
+    "CONFIG": "${CONFIG}",
+    "MODEL_NAME_OR_PATH": "${MODEL_NAME_OR_PATH}",
+    "TRAIN_DATA": "${TRAIN_DATA}",
+    "OUTPUT_DIR": "${OUTPUT_DIR}",
+    "OBJECTIVE": "${OBJECTIVE}",
+    "TOP_K": "${TOP_K}",
+    "RANK": "${RANK}",
+    "ALPHA": "${ALPHA}",
+    "BETA": "${BETA}",
+    "CLIP_EPSILON": "${CLIP_EPSILON}",
+    "VALUE_LOSS_WEIGHT": "${VALUE_LOSS_WEIGHT}",
+    "NUM_GPUS": "${NUM_GPUS}",
+    "MIXED_PRECISION": "${MIXED_PRECISION}",
+    "MAX_STEPS": "${MAX_STEPS}",
+    "NUM_EPOCHS": "${NUM_EPOCHS}",
+    "SAVE_STEPS": "${SAVE_STEPS}",
+    "LOGGING_STEPS": "${LOGGING_STEPS}",
+    "PER_DEVICE_TRAIN_BATCH_SIZE": "${PER_DEVICE_TRAIN_BATCH_SIZE}",
+    "GRADIENT_ACCUMULATION_STEPS": "${GRADIENT_ACCUMULATION_STEPS}",
+    "LEARNING_RATE": "${LEARNING_RATE}",
+    "WEIGHT_DECAY": "${WEIGHT_DECAY}",
+    "GRADIENT_CLIPPING": "${GRADIENT_CLIPPING}",
+    "RESUME_FROM_CHECKPOINT": "${RESUME_FROM_CHECKPOINT}",
+    "WANDB_PROJECT": "${WANDB_PROJECT}",
+    "WANDB_RUN_NAME": "${WANDB_RUN_NAME}",
+    "WANDB_ENTITY": "${WANDB_ENTITY}",
+    "WANDB_RUN_ID": "${WANDB_RUN_ID}",
+    "WANDB_MODE": "${WANDB_MODE}",
+}
+Path("${OUTPUT_DIR}", "launch_config.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+PY
 
 if [[ -n "${WANDB_MODE}" ]]; then
   WANDB_MODE_OVERRIDE="--override=wandb_mode=${WANDB_MODE}"
 else
   WANDB_MODE_OVERRIDE="--override=wandb_mode=null"
+fi
+
+if [[ -n "${WANDB_ENTITY}" ]]; then
+  WANDB_ENTITY_OVERRIDE="--override=wandb_entity=${WANDB_ENTITY}"
+else
+  WANDB_ENTITY_OVERRIDE="--override=wandb_entity=null"
+fi
+
+if [[ -n "${WANDB_RUN_ID}" ]]; then
+  WANDB_RUN_ID_OVERRIDE="--override=wandb_run_id=${WANDB_RUN_ID}"
+else
+  WANDB_RUN_ID_OVERRIDE="--override=wandb_run_id=null"
 fi
 
 accelerate launch \
@@ -57,6 +112,8 @@ accelerate launch \
   --override "rank=${RANK}" \
   --override "alpha=${ALPHA}" \
   --override "beta=${BETA}" \
+  --override "clip_epsilon=${CLIP_EPSILON}" \
+  --override "value_loss_weight=${VALUE_LOSS_WEIGHT}" \
   --override "max_steps=${MAX_STEPS}" \
   --override "num_epochs=${NUM_EPOCHS}" \
   --override "save_steps=${SAVE_STEPS}" \
@@ -64,7 +121,11 @@ accelerate launch \
   --override "per_device_train_batch_size=${PER_DEVICE_TRAIN_BATCH_SIZE}" \
   --override "gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS}" \
   --override "learning_rate=${LEARNING_RATE}" \
+  --override "weight_decay=${WEIGHT_DECAY}" \
+  --override "gradient_clipping=${GRADIENT_CLIPPING}" \
   --override "resume_from_checkpoint=${RESUME_FROM_CHECKPOINT}" \
   --override "wandb_project=${WANDB_PROJECT}" \
   --override "wandb_run_name=${WANDB_RUN_NAME}" \
+  "${WANDB_ENTITY_OVERRIDE}" \
+  "${WANDB_RUN_ID_OVERRIDE}" \
   "${WANDB_MODE_OVERRIDE}"

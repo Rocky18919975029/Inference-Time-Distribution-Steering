@@ -35,6 +35,7 @@ class ITDSConfig:
     wandb_project: str | None = "itds"
     wandb_entity: str | None = None
     wandb_run_name: str | None = None
+    wandb_run_id: str | None = None
     wandb_mode: str | None = None
 
 
@@ -42,4 +43,3 @@ def load_config(path: str | Path) -> ITDSConfig:
     with Path(path).open("r", encoding="utf-8") as handle:
         data: dict[str, Any] = yaml.safe_load(handle) or {}
     return ITDSConfig(**data)
-

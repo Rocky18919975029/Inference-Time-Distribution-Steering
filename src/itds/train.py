@@ -76,24 +76,67 @@ def _save_checkpoint(accelerator: Accelerator, model, optimizer, checkpoint_dir:
                 "optimizer": optimizer.state_dict(),
                 "step": step,
                 "epoch": epoch,
+                "wandb_run_id": _wandb_run_id_from_runtime() or config.wandb_run_id,
                 "config": config.__dict__,
             },
             checkpoint_dir / "steering.pt",
         )
         (checkpoint_dir / "training_state.json").write_text(
-            json.dumps({"global_step": step, "epoch": epoch, "config": config.__dict__}, indent=2),
+            json.dumps(
+                {
+                    "global_step": step,
+                    "epoch": epoch,
+                    "wandb_run_id": _wandb_run_id_from_runtime() or config.wandb_run_id,
+                    "config": config.__dict__,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
     accelerator.wait_for_everyone()
 
 
-def _load_checkpoint(model, optimizer, checkpoint_dir: Path | None, device: torch.device) -> tuple[int, int]:
+def _load_training_state(checkpoint_dir: Path | None) -> dict[str, Any]:
+    if checkpoint_dir is None:
+        return {}
+    state_path = checkpoint_dir / "training_state.json"
+    if not state_path.exists():
+        return {}
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def _load_checkpoint(accelerator: Accelerator, model, optimizer, checkpoint_dir: Path | None, device: torch.device) -> tuple[int, int]:
     if checkpoint_dir is None:
         return 0, 0
     payload = torch.load(checkpoint_dir / "steering.pt", map_location=device)
-    model.load_steering_state_dict(payload["steering"])
+    accelerator.unwrap_model(model).load_steering_state_dict(payload["steering"])
     optimizer.load_state_dict(payload["optimizer"])
     return int(payload.get("step", 0)), int(payload.get("epoch", 0))
+
+
+def _wandb_run_id_from_runtime() -> str | None:
+    try:
+        import wandb
+
+        if wandb.run is not None:
+            return wandb.run.id
+    except ImportError:
+        return None
+    return None
+
+
+def _wandb_init_kwargs(config: ITDSConfig, resumed_state: dict[str, Any]) -> dict[str, Any]:
+    run_id = config.wandb_run_id or resumed_state.get("wandb_run_id")
+    init_kwargs: dict[str, Any] = {
+        "name": config.wandb_run_name,
+        "entity": config.wandb_entity,
+    }
+    if run_id:
+        init_kwargs["id"] = run_id
+        init_kwargs["resume"] = "allow"
+        os.environ.setdefault("WANDB_RUN_ID", run_id)
+        os.environ.setdefault("WANDB_RESUME", "allow")
+    return {"wandb": {key: value for key, value in init_kwargs.items() if value is not None}}
 
 
 def _loss_for_objective(config: ITDSConfig, batch):
@@ -113,6 +156,7 @@ def main() -> None:
     args = parser.parse_args()
     config = _apply_overrides(load_config(args.config), args.override)
     resume_path = _resolve_resume_path(config)
+    resumed_state = _load_training_state(resume_path)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=config.gradient_accumulation_steps,
@@ -133,7 +177,7 @@ def main() -> None:
         accelerator.init_trackers(
             project_name=config.wandb_project,
             config=config.__dict__,
-            init_kwargs={"wandb": {k: v for k, v in {"name": config.wandb_run_name, "entity": config.wandb_entity}.items() if v}},
+            init_kwargs=_wandb_init_kwargs(config, resumed_state),
         )
 
     dtype = torch.bfloat16 if config.bf16 and torch.cuda.is_available() else None
@@ -162,7 +206,7 @@ def main() -> None:
     )
     optimizer = AdamW((p for p in model.parameters() if p.requires_grad), lr=config.learning_rate, weight_decay=config.weight_decay)
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
-    global_step, epoch = _load_checkpoint(model, optimizer, resume_path, accelerator.device)
+    global_step, epoch = _load_checkpoint(accelerator, model, optimizer, resume_path, accelerator.device)
 
     steps_per_epoch = math.ceil(len(dataloader) / config.gradient_accumulation_steps)
     total = config.max_steps if config.max_steps > 0 else steps_per_epoch * max(config.num_epochs - epoch, 0)
