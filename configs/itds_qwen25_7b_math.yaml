@@ -4,6 +4,8 @@ output_dir: outputs/itds_tb_qwen25_7b
 objective: tb
 top_k: 64
 rank: 32
+actor_depth: 10
+critic_depth: 10
 alpha: 1.0
 beta: 0.1
 clip_epsilon: 0.2

@@ -49,9 +49,11 @@ def main() -> None:
     parser.add_argument("--eval-data", default=str(ROOT_DIR / "data" / "test.parquet"))
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model-name-or-path", default="")
-    parser.add_argument("--top-k", type=int, default=64)
-    parser.add_argument("--rank", type=int, default=32)
-    parser.add_argument("--alpha", type=float, default=1.0)
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--rank", type=int, default=None)
+    parser.add_argument("--actor-depth", type=int, default=None)
+    parser.add_argument("--critic-depth", type=int, default=None)
+    parser.add_argument("--alpha", type=float, default=None)
     parser.add_argument("--max-samples", type=int, default=500)
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -62,14 +64,24 @@ def main() -> None:
     payload = torch.load(checkpoint / "steering.pt", map_location="cpu")
     config = payload.get("config", {})
     model_name = args.model_name_or_path or config.get("model_name_or_path")
-    top_k = args.top_k or int(config.get("top_k", 64))
-    rank = args.rank or int(config.get("rank", 32))
+    top_k = args.top_k if args.top_k is not None else int(config.get("top_k", 64))
+    rank = args.rank if args.rank is not None else int(config.get("rank", 32))
+    actor_depth = args.actor_depth if args.actor_depth is not None else int(config.get("actor_depth", 10))
+    critic_depth = args.critic_depth if args.critic_depth is not None else int(config.get("critic_depth", 10))
     alpha = args.alpha if args.alpha is not None else float(config.get("alpha", 1.0))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if torch.cuda.is_available() else None
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = TopKLowRankSteering(model_name, top_k=top_k, rank=rank, alpha=alpha, torch_dtype=dtype)
+    model = TopKLowRankSteering(
+        model_name,
+        top_k=top_k,
+        rank=rank,
+        actor_depth=actor_depth,
+        critic_depth=critic_depth,
+        alpha=alpha,
+        torch_dtype=dtype,
+    )
     model.load_steering_state_dict(payload["steering"])
     model.to(device)
     model.eval()

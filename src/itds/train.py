@@ -186,6 +186,8 @@ def main() -> None:
         config.model_name_or_path,
         top_k=config.top_k,
         rank=config.rank,
+        actor_depth=config.actor_depth,
+        critic_depth=config.critic_depth,
         alpha=config.alpha,
         torch_dtype=dtype,
     )

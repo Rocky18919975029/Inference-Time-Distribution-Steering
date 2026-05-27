@@ -18,6 +18,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/outputs/itds_tb_qwen25_7b}"
 OBJECTIVE="${OBJECTIVE:-tb}"
 TOP_K="${TOP_K:-64}"
 RANK="${RANK:-32}"
+ACTOR_DEPTH="${ACTOR_DEPTH:-10}"
+CRITIC_DEPTH="${CRITIC_DEPTH:-10}"
 ALPHA="${ALPHA:-1.0}"
 BETA="${BETA:-0.1}"
 CLIP_EPSILON="${CLIP_EPSILON:-0.2}"
@@ -54,6 +56,8 @@ payload = {
     "OBJECTIVE": "${OBJECTIVE}",
     "TOP_K": "${TOP_K}",
     "RANK": "${RANK}",
+    "ACTOR_DEPTH": "${ACTOR_DEPTH}",
+    "CRITIC_DEPTH": "${CRITIC_DEPTH}",
     "ALPHA": "${ALPHA}",
     "BETA": "${BETA}",
     "CLIP_EPSILON": "${CLIP_EPSILON}",
@@ -110,6 +114,8 @@ accelerate launch \
   --override "objective=${OBJECTIVE}" \
   --override "top_k=${TOP_K}" \
   --override "rank=${RANK}" \
+  --override "actor_depth=${ACTOR_DEPTH}" \
+  --override "critic_depth=${CRITIC_DEPTH}" \
   --override "alpha=${ALPHA}" \
   --override "beta=${BETA}" \
   --override "clip_epsilon=${CLIP_EPSILON}" \

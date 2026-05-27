@@ -17,6 +17,33 @@ class SteeringBatch:
     num_valid_tokens: torch.Tensor
 
 
+class ResidualSiluBlock(nn.Module):
+    def __init__(self, width: int):
+        super().__init__()
+        self.linear = nn.Linear(width, width)
+        self.activation = nn.SiLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.activation(self.linear(x))
+
+
+def _build_actor(hidden_size: int, rank: int, depth: int) -> nn.Sequential:
+    if depth < 1:
+        raise ValueError("actor_depth must be >= 1")
+    layers: list[nn.Module] = [nn.Linear(hidden_size, rank)]
+    layers.extend(ResidualSiluBlock(rank) for _ in range(depth - 1))
+    return nn.Sequential(*layers)
+
+
+def _build_critic(hidden_size: int, rank: int, depth: int) -> nn.Sequential:
+    if depth < 2:
+        raise ValueError("critic_depth must be >= 2")
+    layers: list[nn.Module] = [nn.Linear(hidden_size, rank)]
+    layers.extend(ResidualSiluBlock(rank) for _ in range(depth - 2))
+    layers.extend([nn.SiLU(), nn.Linear(rank, 1)])
+    return nn.Sequential(*layers)
+
+
 class TopKLowRankSteering(nn.Module):
     def __init__(
         self,
@@ -24,12 +51,16 @@ class TopKLowRankSteering(nn.Module):
         *,
         top_k: int = 64,
         rank: int = 32,
+        actor_depth: int = 10,
+        critic_depth: int = 10,
         alpha: float = 1.0,
         torch_dtype: torch.dtype | None = None,
     ):
         super().__init__()
         self.top_k = top_k
         self.rank = rank
+        self.actor_depth = actor_depth
+        self.critic_depth = critic_depth
         self.alpha = alpha
         self.base_model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
@@ -40,13 +71,9 @@ class TopKLowRankSteering(nn.Module):
             param.requires_grad_(False)
         hidden_size = self.base_model.config.hidden_size
         vocab_size = self.base_model.config.vocab_size
-        self.state_projector = nn.Sequential(
-            nn.Linear(hidden_size, rank),
-            nn.Tanh(),
-            nn.Linear(rank, rank),
-        )
+        self.state_projector = _build_actor(hidden_size, rank, actor_depth)
         self.token_basis = nn.Embedding(vocab_size, rank)
-        self.value_head = nn.Linear(hidden_size, 1)
+        self.value_head = _build_critic(hidden_size, rank, critic_depth)
 
     def trainable_parameter_counts(self) -> tuple[int, int]:
         trainable = sum(param.numel() for param in self.parameters() if param.requires_grad)

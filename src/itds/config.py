@@ -15,6 +15,8 @@ class ITDSConfig:
     objective: str = "tb"
     top_k: int = 64
     rank: int = 32
+    actor_depth: int = 10
+    critic_depth: int = 10
     alpha: float = 1.0
     beta: float = 0.1
     clip_epsilon: float = 0.2
