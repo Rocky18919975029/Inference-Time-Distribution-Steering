@@ -20,8 +20,16 @@ def generate_one(
         tokenizer.pad_token = tokenizer.eos_token
     input_ids = tokenizer(prompt, add_special_tokens=False, return_tensors="pt").input_ids.to(device)
     generated: list[int] = []
+    past_key_values = None
+    next_input_ids = input_ids
     for _ in range(max_new_tokens):
-        output = model.base_model(input_ids=input_ids, output_hidden_states=True, use_cache=False)
+        output = model.base_model(
+            input_ids=next_input_ids,
+            past_key_values=past_key_values,
+            output_hidden_states=True,
+            use_cache=True,
+        )
+        past_key_values = output.past_key_values
         base_logits = output.logits[0, -1]
         hidden = output.hidden_states[-1][0, -1]
         top_values, top_ids = torch.topk(base_logits, k=min(model.top_k, base_logits.shape[-1]))
@@ -49,5 +57,5 @@ def generate_one(
         if tokenizer.eos_token_id is not None and token_id == tokenizer.eos_token_id:
             break
         generated.append(token_id)
-        input_ids = torch.cat([input_ids, next_id.reshape(1, 1)], dim=-1)
+        next_input_ids = next_id.reshape(1, 1)
     return tokenizer.decode(generated, skip_special_tokens=True)
