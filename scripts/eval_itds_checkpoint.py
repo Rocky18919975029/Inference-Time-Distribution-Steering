@@ -124,7 +124,8 @@ def _ground_truth(row: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate an ITDS steering checkpoint with limit-of-RLVR grading.")
-    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--checkpoint", default="")
+    parser.add_argument("--base-only", action="store_true", help="Evaluate the frozen base model through the ITDS decoding path.")
     parser.add_argument("--eval-data", default=str(ROOT_DIR / "data" / "test.parquet"))
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model-name-or-path", default="")
@@ -139,15 +140,21 @@ def main() -> None:
     parser.add_argument("--top-p", type=float, default=1.0)
     args = parser.parse_args()
 
-    checkpoint = Path(args.checkpoint).resolve()
-    payload = torch.load(checkpoint / "steering.pt", map_location="cpu")
-    config = payload.get("config", {})
-    model_name = args.model_name_or_path or config.get("model_name_or_path")
+    if not args.base_only and not args.checkpoint:
+        parser.error("--checkpoint is required unless --base-only is set")
+
+    checkpoint = Path(args.checkpoint).resolve() if args.checkpoint else None
+    payload: dict[str, Any] = {}
+    config: dict[str, Any] = {}
+    if checkpoint is not None:
+        payload = torch.load(checkpoint / "steering.pt", map_location="cpu")
+        config = payload.get("config", {})
+    model_name = args.model_name_or_path or config.get("model_name_or_path") or "Qwen/Qwen2.5-7B"
     top_k = args.top_k if args.top_k is not None else int(config.get("top_k", 64))
     rank = args.rank if args.rank is not None else int(config.get("rank", 32))
     actor_depth = args.actor_depth if args.actor_depth is not None else int(config.get("actor_depth", 10))
     critic_depth = args.critic_depth if args.critic_depth is not None else int(config.get("critic_depth", 10))
-    alpha = args.alpha if args.alpha is not None else float(config.get("alpha", 1.0))
+    alpha = 0.0 if args.base_only else (args.alpha if args.alpha is not None else float(config.get("alpha", 1.0)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if torch.cuda.is_available() else None
@@ -161,14 +168,16 @@ def main() -> None:
         alpha=alpha,
         torch_dtype=dtype,
     )
-    model.load_steering_state_dict(payload["steering"])
+    if not args.base_only:
+        model.load_steering_state_dict(payload["steering"])
     model.to(device)
     model.eval()
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = _load_eval_rows(Path(args.eval_data), args.max_samples)
-    output_path = output_dir / f"{checkpoint.name}_itds_eval.jsonl"
+    eval_name = "base_only" if args.base_only else checkpoint.name
+    output_path = output_dir / f"{eval_name}_itds_eval.jsonl"
     correct = 0
 
     with output_path.open("w", encoding="utf-8") as handle:
@@ -210,7 +219,13 @@ def main() -> None:
             )
 
     summary = {
-        "checkpoint": str(checkpoint),
+        "checkpoint": "base_only" if args.base_only else str(checkpoint),
+        "model_name_or_path": model_name,
+        "top_k": top_k,
+        "rank": rank,
+        "actor_depth": actor_depth,
+        "critic_depth": critic_depth,
+        "alpha": alpha,
         "accuracy": correct / len(rows) if rows else 0.0,
         "correct": correct,
         "total": len(rows),
