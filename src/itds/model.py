@@ -15,6 +15,11 @@ class SteeringBatch:
     rewards: torch.Tensor
     group_ids: list[str]
     num_valid_tokens: torch.Tensor
+    token_log_pi: torch.Tensor
+    token_log_ref: torch.Tensor
+    token_values: torch.Tensor
+    token_to_sequence: torch.Tensor
+    token_is_terminal: torch.Tensor
 
 
 class ResidualSiluBlock(nn.Module):
@@ -122,6 +127,11 @@ class TopKLowRankSteering(nn.Module):
         rewards: list[float] = []
         group_ids: list[str] = []
         valid_counts: list[int] = []
+        token_log_pi_values: list[torch.Tensor] = []
+        token_log_ref_values: list[torch.Tensor] = []
+        token_value_values: list[torch.Tensor] = []
+        token_to_sequence_values: list[int] = []
+        token_is_terminal_values: list[float] = []
 
         for row, example in enumerate(examples):
             prompt_len = len(prompt_ids[row])
@@ -150,12 +160,18 @@ class TopKLowRankSteering(nn.Module):
                 row_values.append(self.value_head(state).squeeze(-1))
 
             if row_log_pi:
+                sequence_index = len(log_pi_values)
                 log_pi_values.append(torch.stack(row_log_pi).sum())
                 log_ref_values.append(torch.stack(row_log_ref).sum())
                 value_values.append(torch.stack(row_values).mean())
                 rewards.append(float(example.reward))
                 group_ids.append(example.group_id)
                 valid_counts.append(len(row_log_pi))
+                token_log_pi_values.extend(row_log_pi)
+                token_log_ref_values.extend(row_log_ref)
+                token_value_values.extend(row_values)
+                token_to_sequence_values.extend([sequence_index] * len(row_log_pi))
+                token_is_terminal_values.extend([0.0] * (len(row_log_pi) - 1) + [1.0])
 
         if not log_pi_values:
             trainable_param = next(param for param in self.parameters() if param.requires_grad)
@@ -167,6 +183,11 @@ class TopKLowRankSteering(nn.Module):
                 rewards=torch.zeros(1, device=device),
                 group_ids=["empty"],
                 num_valid_tokens=torch.zeros(1, device=device),
+                token_log_pi=zero.reshape(1),
+                token_log_ref=zero.detach().reshape(1),
+                token_values=zero.reshape(1),
+                token_to_sequence=torch.zeros(1, dtype=torch.long, device=device),
+                token_is_terminal=torch.ones(1, device=device),
             )
 
         return SteeringBatch(
@@ -176,4 +197,9 @@ class TopKLowRankSteering(nn.Module):
             rewards=torch.tensor(rewards, dtype=torch.float32, device=device),
             group_ids=group_ids,
             num_valid_tokens=torch.tensor(valid_counts, dtype=torch.float32, device=device),
+            token_log_pi=torch.stack(token_log_pi_values),
+            token_log_ref=torch.stack(token_log_ref_values).detach(),
+            token_values=torch.stack(token_value_values),
+            token_to_sequence=torch.tensor(token_to_sequence_values, dtype=torch.long, device=device),
+            token_is_terminal=torch.tensor(token_is_terminal_values, dtype=torch.float32, device=device),
         )

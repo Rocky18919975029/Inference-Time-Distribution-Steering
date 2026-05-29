@@ -26,11 +26,14 @@ def tb_vargrad_loss(batch: SteeringBatch, *, beta: float) -> tuple[torch.Tensor,
 
 
 def grpo_loss(batch: SteeringBatch, *, beta: float, clip_epsilon: float) -> tuple[torch.Tensor, dict[str, float]]:
-    returns = batch.rewards - beta * (batch.log_pi.detach() - batch.log_ref)
+    old_log_pi = batch.log_pi.detach()
+    returns = batch.rewards - beta * (old_log_pi - batch.log_ref)
     advantages = _group_normalized(returns, batch.group_ids)
-    ratio = torch.exp(batch.log_pi - batch.log_pi.detach())
+    token_advantages = advantages[batch.token_to_sequence]
+    token_old_log_pi = batch.token_log_pi.detach()
+    ratio = torch.exp(batch.token_log_pi - token_old_log_pi)
     clipped = ratio.clamp(1.0 - clip_epsilon, 1.0 + clip_epsilon)
-    loss = -torch.minimum(ratio * advantages, clipped * advantages).mean()
+    loss = -torch.minimum(ratio * token_advantages, clipped * token_advantages).mean()
     return loss, _diagnostics(batch, loss, advantages=advantages)
 
 
@@ -40,15 +43,34 @@ def actor_critic_loss(
     beta: float,
     value_loss_weight: float,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    returns = batch.rewards - beta * (batch.log_pi.detach() - batch.log_ref)
-    advantages = returns - batch.values
-    policy_loss = -(advantages.detach() * batch.log_pi).mean()
-    value_loss = (batch.values - returns.detach()).square().mean()
+    token_old_log_pi = batch.token_log_pi.detach()
+    token_rewards = -beta * (token_old_log_pi - batch.token_log_ref)
+    token_rewards = token_rewards + batch.token_is_terminal * batch.rewards[batch.token_to_sequence]
+    returns = _token_monte_carlo_returns(token_rewards, batch.token_to_sequence)
+    advantages = returns - batch.token_values
+    policy_loss = -(advantages.detach() * batch.token_log_pi).mean()
+    value_loss = (batch.token_values - returns.detach()).square().mean()
     loss = policy_loss + value_loss_weight * value_loss
     diagnostics = _diagnostics(batch, loss, advantages=advantages.detach())
     diagnostics["policy_loss"] = float(policy_loss.detach().cpu())
     diagnostics["value_loss"] = float(value_loss.detach().cpu())
+    diagnostics["token_reward_mean"] = float(token_rewards.detach().mean().cpu())
+    diagnostics["return_mean"] = float(returns.detach().mean().cpu())
     return loss, diagnostics
+
+
+def _token_monte_carlo_returns(token_rewards: torch.Tensor, token_to_sequence: torch.Tensor) -> torch.Tensor:
+    returns = torch.zeros_like(token_rewards)
+    running = token_rewards.new_tensor(0.0)
+    previous_sequence = None
+    for index in range(token_rewards.numel() - 1, -1, -1):
+        sequence = int(token_to_sequence[index].item())
+        if previous_sequence is None or sequence != previous_sequence:
+            running = token_rewards.new_tensor(0.0)
+        running = running + token_rewards[index]
+        returns[index] = running
+        previous_sequence = sequence
+    return returns
 
 
 def _diagnostics(
@@ -72,5 +94,5 @@ def _diagnostics(
     if advantages is not None:
         diagnostics["advantage_mean"] = float(advantages.detach().mean().cpu())
         diagnostics["advantage_std"] = float(advantages.detach().std(unbiased=False).cpu())
+    diagnostics["num_tokens"] = float(batch.token_log_pi.numel())
     return diagnostics
-
