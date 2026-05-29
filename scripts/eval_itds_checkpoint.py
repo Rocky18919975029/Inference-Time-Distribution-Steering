@@ -217,6 +217,7 @@ def main() -> None:
                 )
                 + "\n"
             )
+            handle.flush()
 
     summary = {
         "checkpoint": "base_only" if args.base_only else str(checkpoint),
