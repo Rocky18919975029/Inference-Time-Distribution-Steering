@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import torch
@@ -25,10 +26,86 @@ from parser import extract_answer, strip_string
 
 def _load_eval_rows(path: Path, max_samples: int) -> list[dict]:
     if path.suffix == ".parquet":
-        rows = pd.read_parquet(path).to_dict("records")
+        rows = [_normalize_parquet_row(row, int(row_index)) for row_index, row in pd.read_parquet(path).iterrows()]
     else:
         rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     return rows[:max_samples] if max_samples > 0 else rows
+
+
+def _loads_if_json(value: Any) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("[") or stripped.startswith("{"):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                return value
+    return value
+
+
+def _normalize_question(row: pd.Series) -> str:
+    for key in ("question", "problem", "input", "Question"):
+        if key in row and pd.notna(row[key]):
+            return str(row[key])
+    extra_info = _loads_if_json(row.get("extra_info"))
+    if isinstance(extra_info, dict) and extra_info.get("question") is not None:
+        return str(extra_info["question"])
+    return ""
+
+
+def _normalize_prompt(value: Any, question: str) -> str:
+    value = _loads_if_json(value)
+    if isinstance(value, str) and value:
+        return value
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, list) and value:
+        first = value[0]
+        if isinstance(first, dict) and isinstance(first.get("content"), str):
+            return first["content"]
+        if isinstance(first, str):
+            return first
+    if isinstance(value, dict) and isinstance(value.get("content"), str):
+        return value["content"]
+    return build_qwen_boxed_prompt(question)
+
+
+def _normalize_ground_truth(row: pd.Series) -> str:
+    for column in ("gt", "gt_answer", "answer", "target"):
+        if column in row and pd.notna(row[column]):
+            return strip_string(str(row[column]))
+    reward_model = _loads_if_json(row.get("reward_model"))
+    if isinstance(reward_model, dict) and reward_model.get("ground_truth") is not None:
+        return strip_string(str(reward_model["ground_truth"]))
+    extra_info = _loads_if_json(row.get("extra_info"))
+    if isinstance(extra_info, dict) and extra_info.get("answer") is not None:
+        return strip_string(str(extra_info["answer"]))
+    return ""
+
+
+def _normalize_problem_id(row: pd.Series, fallback: int) -> int:
+    if "__problem_id" in row and pd.notna(row["__problem_id"]):
+        return int(row["__problem_id"])
+    extra_info = _loads_if_json(row.get("extra_info"))
+    if isinstance(extra_info, dict) and extra_info.get("index") is not None:
+        try:
+            return int(extra_info["index"])
+        except (TypeError, ValueError):
+            pass
+    return int(fallback)
+
+
+def _normalize_parquet_row(row: pd.Series, row_index: int) -> dict:
+    question = _normalize_question(row)
+    return {
+        "idx": _normalize_problem_id(row, row_index),
+        "question": question,
+        "prompt": _normalize_prompt(row.get("prompt"), question),
+        "gt": _normalize_ground_truth(row),
+        "subject": row.get("subject"),
+        "level": row.get("level"),
+        "data_source": row.get("data_source"),
+    }
 
 
 def _question(row: dict) -> str:
@@ -39,8 +116,10 @@ def _question(row: dict) -> str:
 
 
 def _ground_truth(row: dict) -> str:
-    value = row.get("gt", row.get("answer", ""))
-    return strip_string(str(value))
+    for key in ("gt", "gt_answer", "answer", "target"):
+        if row.get(key) is not None:
+            return strip_string(str(row[key]))
+    return ""
 
 
 def main() -> None:
@@ -96,7 +175,12 @@ def main() -> None:
         for idx, row in enumerate(tqdm(rows, desc="itds eval")):
             question = _question(row)
             gt = _ground_truth(row)
-            prompt = build_qwen_boxed_prompt(question)
+            prompt = row.get("prompt") if isinstance(row.get("prompt"), str) and row.get("prompt") else build_qwen_boxed_prompt(question)
+            if not question or not gt:
+                raise ValueError(
+                    f"Eval row {row.get('idx', idx)!r} normalized to empty question or ground truth. "
+                    f"Available keys: {sorted(row.keys())}"
+                )
             response = generate_one(
                 model,
                 tokenizer,
