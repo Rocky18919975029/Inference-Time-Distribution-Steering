@@ -185,6 +185,8 @@ def _write_html(result: dict, path: Path) -> None:
     blocks = []
     for item in result["per_response"]:
         highlighted = _highlighted_response(item["response"], item["top_entropy_positions"])
+        raw_response = html.escape(item["response"])
+        response_chars = len(item["response"])
         rows = []
         for rank, pos in enumerate(item["top_entropy_positions"], start=1):
             top_tokens = " ".join(
@@ -205,7 +207,11 @@ def _write_html(result: dict, path: Path) -> None:
             f"""
             <section>
               <h2>row={html.escape(str(item["row"]))} problem_id={html.escape(str(item["problem_id"]))} reward={html.escape(str(item["reward"]))}</h2>
-              <div class="response">{highlighted}</div>
+              <div class="submeta">response chars={response_chars} | scored tokens={item["num_response_tokens_scored"]}</div>
+              <h3>Full raw response</h3>
+              <pre class="response raw-response">{raw_response}</pre>
+              <h3>Entropy heatmap over full response</h3>
+              <pre class="response heatmap-response">{highlighted}</pre>
               <table>
                 <thead><tr><th>#</th><th>response token</th><th>entropy nats</th><th>entropy bits</th><th>target</th><th>target rank</th><th>top candidates</th></tr></thead>
                 <tbody>{''.join(rows)}</tbody>
@@ -222,8 +228,11 @@ def _write_html(result: dict, path: Path) -> None:
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #222; }}
     h1 {{ margin-bottom: 0; }}
     .meta {{ color: #666; margin: 8px 0 24px; }}
+    .submeta {{ color: #666; margin: 4px 0 12px; }}
     section {{ border-top: 1px solid #ddd; padding-top: 20px; margin-top: 24px; }}
-    .response {{ white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.65; border: 1px solid #ddd; padding: 16px; border-radius: 6px; background: #fafafa; }}
+    h3 {{ margin: 18px 0 8px; }}
+    .response {{ white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.65; border: 1px solid #ddd; padding: 16px; border-radius: 6px; background: #fafafa; }}
+    .raw-response {{ max-height: none; }}
     .hot-token {{ border-radius: 3px; padding: 1px 2px; }}
     sup {{ font-size: 10px; color: #7a0000; margin-right: 1px; }}
     table {{ border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }}
