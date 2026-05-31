@@ -59,6 +59,7 @@ class TopKLowRankSteering(nn.Module):
         actor_depth: int = 10,
         critic_depth: int = 10,
         alpha: float = 1.0,
+        token_basis_init_std: float = 1e-3,
         torch_dtype: torch.dtype | None = None,
     ):
         super().__init__()
@@ -67,6 +68,7 @@ class TopKLowRankSteering(nn.Module):
         self.actor_depth = actor_depth
         self.critic_depth = critic_depth
         self.alpha = alpha
+        self.token_basis_init_std = token_basis_init_std
         self.base_model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             torch_dtype=torch_dtype,
@@ -78,6 +80,7 @@ class TopKLowRankSteering(nn.Module):
         vocab_size = self.base_model.config.vocab_size
         self.state_projector = _build_actor(hidden_size, rank, actor_depth)
         self.token_basis = nn.Embedding(vocab_size, rank)
+        nn.init.normal_(self.token_basis.weight, mean=0.0, std=token_basis_init_std)
         self.value_head = _build_critic(hidden_size, rank, critic_depth)
 
     def trainable_parameter_counts(self) -> tuple[int, int]:

@@ -39,3 +39,21 @@ def test_actor_critic_loss_is_token_level_and_differentiable():
     assert diagnostics["num_tokens"] == 3.0
     assert "token_reward_mean" in diagnostics
     assert "return_mean" in diagnostics
+
+
+def test_token_basis_small_initialization_without_loading_base(monkeypatch):
+    from types import SimpleNamespace
+
+    import itds.model as model_module
+
+    class TinyBase(torch.nn.Module):
+        config = SimpleNamespace(hidden_size=4, vocab_size=1000)
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return cls()
+
+    monkeypatch.setattr(model_module, "AutoModelForCausalLM", TinyBase)
+    model = model_module.TopKLowRankSteering("tiny", rank=8, token_basis_init_std=1e-4)
+
+    assert model.token_basis.weight.std().item() < 5e-4

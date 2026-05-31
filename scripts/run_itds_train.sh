@@ -21,6 +21,7 @@ RANK="${RANK:-32}"
 ACTOR_DEPTH="${ACTOR_DEPTH:-10}"
 CRITIC_DEPTH="${CRITIC_DEPTH:-10}"
 ALPHA="${ALPHA:-1.0}"
+TOKEN_BASIS_INIT_STD="${TOKEN_BASIS_INIT_STD:-0.001}"
 BETA="${BETA:-0.1}"
 CLIP_EPSILON="${CLIP_EPSILON:-0.2}"
 VALUE_LOSS_WEIGHT="${VALUE_LOSS_WEIGHT:-0.1}"
@@ -59,6 +60,7 @@ payload = {
     "ACTOR_DEPTH": "${ACTOR_DEPTH}",
     "CRITIC_DEPTH": "${CRITIC_DEPTH}",
     "ALPHA": "${ALPHA}",
+    "TOKEN_BASIS_INIT_STD": "${TOKEN_BASIS_INIT_STD}",
     "BETA": "${BETA}",
     "CLIP_EPSILON": "${CLIP_EPSILON}",
     "VALUE_LOSS_WEIGHT": "${VALUE_LOSS_WEIGHT}",
@@ -117,6 +119,7 @@ accelerate launch \
   --override "actor_depth=${ACTOR_DEPTH}" \
   --override "critic_depth=${CRITIC_DEPTH}" \
   --override "alpha=${ALPHA}" \
+  --override "token_basis_init_std=${TOKEN_BASIS_INIT_STD}" \
   --override "beta=${BETA}" \
   --override "clip_epsilon=${CLIP_EPSILON}" \
   --override "value_loss_weight=${VALUE_LOSS_WEIGHT}" \

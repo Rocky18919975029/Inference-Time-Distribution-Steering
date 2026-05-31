@@ -189,6 +189,7 @@ def main() -> None:
         actor_depth=config.actor_depth,
         critic_depth=config.critic_depth,
         alpha=config.alpha,
+        token_basis_init_std=config.token_basis_init_std,
         torch_dtype=dtype,
     )
     trainable, total = model.trainable_parameter_counts()

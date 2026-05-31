@@ -134,6 +134,7 @@ def main() -> None:
     parser.add_argument("--actor-depth", type=int, default=None)
     parser.add_argument("--critic-depth", type=int, default=None)
     parser.add_argument("--alpha", type=float, default=None)
+    parser.add_argument("--token-basis-init-std", type=float, default=None)
     parser.add_argument("--max-samples", type=int, default=500)
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -155,6 +156,9 @@ def main() -> None:
     actor_depth = args.actor_depth if args.actor_depth is not None else int(config.get("actor_depth", 10))
     critic_depth = args.critic_depth if args.critic_depth is not None else int(config.get("critic_depth", 10))
     alpha = 0.0 if args.base_only else (args.alpha if args.alpha is not None else float(config.get("alpha", 1.0)))
+    token_basis_init_std = (
+        args.token_basis_init_std if args.token_basis_init_std is not None else float(config.get("token_basis_init_std", 1e-3))
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if torch.cuda.is_available() else None
@@ -166,6 +170,7 @@ def main() -> None:
         actor_depth=actor_depth,
         critic_depth=critic_depth,
         alpha=alpha,
+        token_basis_init_std=token_basis_init_std,
         torch_dtype=dtype,
     )
     if not args.base_only:
@@ -227,6 +232,7 @@ def main() -> None:
         "actor_depth": actor_depth,
         "critic_depth": critic_depth,
         "alpha": alpha,
+        "token_basis_init_std": token_basis_init_std,
         "accuracy": correct / len(rows) if rows else 0.0,
         "correct": correct,
         "total": len(rows),

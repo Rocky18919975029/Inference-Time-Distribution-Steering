@@ -7,6 +7,7 @@ rank: 32
 actor_depth: 10
 critic_depth: 10
 alpha: 1.0
+token_basis_init_std: 0.001
 beta: 0.1
 clip_epsilon: 0.2
 value_loss_weight: 0.1

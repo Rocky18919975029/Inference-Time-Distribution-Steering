@@ -18,6 +18,7 @@ class ITDSConfig:
     actor_depth: int = 10
     critic_depth: int = 10
     alpha: float = 1.0
+    token_basis_init_std: float = 1e-3
     beta: float = 0.1
     clip_epsilon: float = 0.2
     value_loss_weight: float = 0.1
