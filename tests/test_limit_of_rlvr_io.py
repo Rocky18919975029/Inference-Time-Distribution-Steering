@@ -8,7 +8,8 @@ def test_flatten_limit_of_rlvr_rows_reconstructs_prompt():
             "question": "What is 1+1?",
             "gt": "2",
             "answer": "2",
-            "pred": ["reason\n\\boxed{2}", "bad"],
+            "pred": ["2", "bad"],
+            "code": ["reason\n\\boxed{2}", "wrong reasoning\n\\boxed{3}"],
             "finish_reason": ["stop", "length"],
             "score": [True, False],
         }
@@ -27,6 +28,10 @@ def test_flatten_limit_of_rlvr_rows_reconstructs_prompt():
     assert flattened[0]["sample_id"] == 0
     assert flattened[0]["reward"] == 1.0
     assert flattened[1]["reward"] == 0.0
+    assert flattened[0]["response"] == "reason\n\\boxed{2}"
+    assert flattened[0]["extracted_answer"] == "2"
+    assert flattened[1]["response"] == "wrong reasoning\n\\boxed{3}"
+    assert flattened[1]["extracted_answer"] == "bad"
     assert flattened[0]["prompt"] == build_qwen_boxed_prompt("What is 1+1?")
     assert flattened[0]["benchmark"] == "math500"
     assert flattened[0]["template"] == "qwen-boxed"

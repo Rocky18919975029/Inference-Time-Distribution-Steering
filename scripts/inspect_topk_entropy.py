@@ -46,6 +46,30 @@ def _context(text: str, char_start: int, char_end: int, window: int) -> str:
     return text[left:char_start] + "<<<" + text[char_start:char_end] + ">>>" + text[char_end:right]
 
 
+def _sample_value(value, sample_id: int | None):
+    if isinstance(value, list):
+        if sample_id is not None and 0 <= sample_id < len(value):
+            return value[sample_id]
+        return value[0] if value else ""
+    return value
+
+
+def _select_response(row: dict, fallback_response: str = "") -> tuple[str, str]:
+    sample_id = row.get("sample_id")
+    try:
+        sample_id = int(sample_id) if sample_id is not None else None
+    except (TypeError, ValueError):
+        sample_id = None
+
+    for field in ("full_response", "code", "completion", "generated_text", "text", "response"):
+        if field not in row:
+            continue
+        value = _sample_value(row.get(field), sample_id)
+        if value is not None and str(value):
+            return str(value), field
+    return fallback_response, "arg:response" if fallback_response else "missing"
+
+
 def _inspect_response(
     *,
     model,
@@ -55,6 +79,7 @@ def _inspect_response(
     response: str,
     row_index: int | None,
     row: dict,
+    response_source: str,
     top_k: int,
     top_n: int,
     context_chars: int,
@@ -132,6 +157,7 @@ def _inspect_response(
         "problem_id": row.get("problem_id", row.get("idx", row_index)),
         "reward": row.get("reward", row.get("is_correct")),
         "response": response,
+        "response_source": response_source,
         "num_response_tokens_scored": len(candidates),
         "top_entropy_positions": top,
     }
@@ -187,6 +213,7 @@ def _write_html(result: dict, path: Path) -> None:
         highlighted = _highlighted_response(item["response"], item["top_entropy_positions"])
         raw_response = html.escape(item["response"])
         response_chars = len(item["response"])
+        source = html.escape(str(item.get("response_source", "response")))
         rows = []
         for rank, pos in enumerate(item["top_entropy_positions"], start=1):
             top_tokens = " ".join(
@@ -207,7 +234,7 @@ def _write_html(result: dict, path: Path) -> None:
             f"""
             <section>
               <h2>row={html.escape(str(item["row"]))} problem_id={html.escape(str(item["problem_id"]))} reward={html.escape(str(item["reward"]))}</h2>
-              <div class="submeta">response chars={response_chars} | scored tokens={item["num_response_tokens_scored"]}</div>
+              <div class="submeta">response source={source} | response chars={response_chars} | scored tokens={item["num_response_tokens_scored"]}</div>
               <h3>Full raw response</h3>
               <pre class="response raw-response">{raw_response}</pre>
               <h3>Entropy heatmap over full response</h3>
@@ -285,14 +312,16 @@ def main() -> None:
     per_response = []
     global_positions = []
     for row_index, row in loaded_rows:
+        response, response_source = _select_response(row, args.response if not args.input else "")
         item = _inspect_response(
             model=model,
             tokenizer=tokenizer,
             device=device,
             prompt=str(row.get("prompt", "")),
-            response=str(row.get("response", "")),
+            response=response,
             row_index=row_index,
             row=row,
+            response_source=response_source,
             top_k=args.top_k,
             top_n=args.top_n,
             context_chars=args.context_chars,

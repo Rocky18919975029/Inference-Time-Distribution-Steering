@@ -53,6 +53,17 @@ def _as_list(value: Any, field: str, row_id: Any) -> list:
     raise ValueError(f"Row {row_id!r} field {field!r} must be a list, got {type(value).__name__}")
 
 
+def _optional_sample_list(value: Any, field: str, row_id: Any, expected_len: int) -> list[Any] | None:
+    if value is None:
+        return None
+    items = _as_list(value, field, row_id)
+    if len(items) != expected_len:
+        raise ValueError(
+            f"Row {row_id!r} field {field!r} has {len(items)} samples, expected {expected_len}"
+        )
+    return items
+
+
 def flatten_limit_of_rlvr_rows(
     rows: Iterable[dict],
     *,
@@ -73,6 +84,7 @@ def flatten_limit_of_rlvr_rows(
 
         predictions = _as_list(row.get("pred"), "pred", problem_id)
         scores = _as_list(row.get("score"), "score", problem_id)
+        full_responses = _optional_sample_list(row.get("code"), "code", problem_id, len(predictions))
         finish_reasons = row.get("finish_reason", [None] * len(predictions))
         finish_reasons = _as_list(finish_reasons, "finish_reason", problem_id)
 
@@ -89,6 +101,7 @@ def flatten_limit_of_rlvr_rows(
         for sample_id, (prediction, score, finish_reason) in enumerate(
             zip(predictions, scores, finish_reasons, strict=True)
         ):
+            full_response = full_responses[sample_id] if full_responses is not None else prediction
             reward = float(bool(score)) if isinstance(score, bool) else float(score)
             flattened.append(
                 {
@@ -98,8 +111,8 @@ def flatten_limit_of_rlvr_rows(
                     "benchmark": metadata.benchmark,
                     "question": question,
                     "prompt": prompt,
-                    "response": "" if prediction is None else str(prediction),
-                    "extracted_answer": row.get("answer"),
+                    "response": "" if full_response is None else str(full_response),
+                    "extracted_answer": "" if prediction is None else str(prediction),
                     "ground_truth": row.get("gt"),
                     "is_correct": bool(score),
                     "reward": reward,
