@@ -19,7 +19,7 @@ sys.path.insert(0, str(MATH_EVAL_DIR))
 
 from itds.generate import generate_one
 from itds.model import TopKLowRankSteering
-from offline_subtb.limit_of_rlvr_io import build_qwen_boxed_prompt
+from itds.limit_of_rlvr_io import build_qwen_boxed_prompt
 from grader import math_equal
 from parser import extract_answer, strip_string
 

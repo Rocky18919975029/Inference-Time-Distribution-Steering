@@ -1,5 +1,5 @@
 model_name_or_path: Qwen/Qwen2.5-7B
-train_data_path: data/full_train_subtb_with_ref.jsonl
+train_data_path: data/full_train_subtb.jsonl
 output_dir: outputs/itds_tb_qwen25_7b
 objective: tb
 top_k: 64

@@ -15,8 +15,7 @@ BENCHMARK_PREFIX="${BENCHMARK_PREFIX:-mini_train_shard}"
 OFFICIAL_OUTPUT_ROOT="${OFFICIAL_OUTPUT_ROOT:-${ROOT_DIR}/data/rollouts/mini_train/eval_results/global_step_0}"
 LOG_DIR="${LOG_DIR:-${OFFICIAL_OUTPUT_ROOT}/logs}"
 MERGED_ROLLOUT="${MERGED_ROLLOUT:-${OFFICIAL_OUTPUT_ROOT}/mini_train/test_qwen-boxed_-1_seed42_t0.6_s0_e-1.jsonl}"
-TRAIN_JSONL="${TRAIN_JSONL:-${ROOT_DIR}/data/mini_train_subtb.jsonl}"
-TRAIN_JSONL_WITH_REF="${TRAIN_JSONL_WITH_REF:-${ROOT_DIR}/data/mini_train_subtb_with_ref.jsonl}"
+TRAIN_JSONL="${TRAIN_JSONL:-${ROOT_DIR}/data/mini_train_itds.jsonl}"
 
 MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-Qwen/Qwen2.5-7B}"
 NUM_SHARDS="${NUM_SHARDS:-4}"
@@ -27,11 +26,6 @@ TEMPERATURE="${TEMPERATURE:-0.6}"
 TOP_P="${TOP_P:-0.95}"
 MAX_TOKENS="${MAX_TOKENS:-4096}"
 PROMPT_TYPE="${PROMPT_TYPE:-qwen-boxed}"
-COMPUTE_REF_LOGPROBS="${COMPUTE_REF_LOGPROBS:-1}"
-REF_CONFIG="${REF_CONFIG:-${ROOT_DIR}/configs/qwen25_7b_math.yaml}"
-REF_GPU="${REF_GPU:-0}"
-REF_NUM_SHARDS="${REF_NUM_SHARDS:-${NUM_SHARDS}}"
-REF_LOGPROB_DIR="${REF_LOGPROB_DIR:-${OFFICIAL_OUTPUT_ROOT}/ref_logprobs}"
 ROLLOUT_LIVE_PROGRESS="${ROLLOUT_LIVE_PROGRESS:-1}"
 ROLLOUT_PROGRESS_INTERVAL="${ROLLOUT_PROGRESS_INTERVAL:-5}"
 
@@ -60,9 +54,6 @@ OFFICIAL_OUTPUT_ROOT="$(abs_path "${OFFICIAL_OUTPUT_ROOT}")"
 LOG_DIR="$(abs_path "${LOG_DIR}")"
 MERGED_ROLLOUT="$(abs_path "${MERGED_ROLLOUT}")"
 TRAIN_JSONL="$(abs_path "${TRAIN_JSONL}")"
-TRAIN_JSONL_WITH_REF="$(abs_path "${TRAIN_JSONL_WITH_REF}")"
-REF_CONFIG="$(abs_path "${REF_CONFIG}")"
-REF_LOGPROB_DIR="$(abs_path "${REF_LOGPROB_DIR}")"
 
 require_limit_of_rlvr() {
   if [[ -z "${LIMIT_OF_RLVR_DIR}" ]]; then
@@ -187,70 +178,6 @@ monitor_rollout_progress() {
   print_rollout_progress 1
 }
 
-compute_ref_logprobs_parallel() {
-  local total_rows rows_per_shard shard_id start_index end_index output_part log_file failed
-  mkdir -p "${REF_LOGPROB_DIR}" "$(dirname "${TRAIN_JSONL_WITH_REF}")"
-  total_rows="$(wc -l < "${TRAIN_JSONL}" | tr -d ' ')"
-  if [[ "${total_rows}" == "0" ]]; then
-    echo "No rows found in ${TRAIN_JSONL}; cannot compute ref logprobs." >&2
-    exit 1
-  fi
-
-  if [[ "${REF_NUM_SHARDS}" -le 1 ]]; then
-    CUDA_VISIBLE_DEVICES="${REF_GPU}" python -m offline_subtb.compute_ref_logprobs \
-      --config "${REF_CONFIG}" \
-      --input "${TRAIN_JSONL}" \
-      --output "${TRAIN_JSONL_WITH_REF}"
-    return
-  fi
-
-  rows_per_shard="$(((total_rows + REF_NUM_SHARDS - 1) / REF_NUM_SHARDS))"
-  pids=()
-  ref_parts=()
-  echo "Computing reference logprobs with ${REF_NUM_SHARDS} GPUs over ${total_rows} rows."
-  for shard_id in $(seq 0 "$((REF_NUM_SHARDS - 1))"); do
-    start_index="$((shard_id * rows_per_shard))"
-    end_index="$((start_index + rows_per_shard))"
-    if [[ "${start_index}" -ge "${total_rows}" ]]; then
-      break
-    fi
-    if [[ "${end_index}" -gt "${total_rows}" ]]; then
-      end_index="${total_rows}"
-    fi
-    output_part="${REF_LOGPROB_DIR}/part_${shard_id}.jsonl"
-    log_file="${REF_LOGPROB_DIR}/part_${shard_id}.log"
-    ref_parts+=("${output_part}")
-    (
-      export CUDA_VISIBLE_DEVICES="${shard_id}"
-      python -m offline_subtb.compute_ref_logprobs \
-        --config "${REF_CONFIG}" \
-        --input "${TRAIN_JSONL}" \
-        --output "${output_part}" \
-        --start-index "${start_index}" \
-        --end-index "${end_index}"
-    ) > "${log_file}" 2>&1 &
-    pids+=("$!")
-    echo "  shard ${shard_id} on GPU ${shard_id}: rows [${start_index}, ${end_index}) -> ${output_part}"
-  done
-
-  failed=0
-  for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
-      failed=1
-    fi
-  done
-  if [[ "${failed}" != "0" ]]; then
-    echo "At least one ref logprob shard failed. Check logs under: ${REF_LOGPROB_DIR}" >&2
-    exit 1
-  fi
-
-  : > "${TRAIN_JSONL_WITH_REF}"
-  for output_part in "${ref_parts[@]}"; do
-    cat "${output_part}" >> "${TRAIN_JSONL_WITH_REF}"
-  done
-  echo "wrote $(wc -l < "${TRAIN_JSONL_WITH_REF}" | tr -d ' ') rows to ${TRAIN_JSONL_WITH_REF}"
-}
-
 rollout() {
   require_limit_of_rlvr
   mkdir -p "${OFFICIAL_OUTPUT_ROOT}" "${LOG_DIR}"
@@ -320,10 +247,6 @@ merge_and_convert() {
     --top-p "${TOP_P}" \
     --max-tokens "${MAX_TOKENS}" \
     --n-sampling "${N_SAMPLING}"
-
-  if [[ "${COMPUTE_REF_LOGPROBS}" == "1" ]]; then
-    compute_ref_logprobs_parallel
-  fi
 }
 
 case "${MODE}" in
@@ -344,9 +267,6 @@ case "${MODE}" in
   merge-only)
     merge_and_convert
     ;;
-  ref-logprobs-only)
-    compute_ref_logprobs_parallel
-    ;;
   all)
     prepare
     export_limit_inputs
@@ -354,7 +274,7 @@ case "${MODE}" in
     merge_and_convert
     ;;
   *)
-    echo "Usage: $0 [all|prepare-only|export-limit-inputs|dry-run|rollout-only|merge-only|ref-logprobs-only]" >&2
+    echo "Usage: $0 [all|prepare-only|export-limit-inputs|dry-run|rollout-only|merge-only]" >&2
     exit 2
     ;;
 esac

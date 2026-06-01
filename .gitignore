@@ -2,10 +2,12 @@
 __pycache__/
 .pytest_cache/
 *.py[cod]
+*.egg-info/
 
 data/
 outputs/
 checkpoints/
 runs/
+wandb/
 
 .DS_Store

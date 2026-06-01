@@ -1,4 +1,4 @@
-from offline_subtb.limit_of_rlvr_io import build_qwen_boxed_prompt, flatten_limit_of_rlvr_rows
+from itds.limit_of_rlvr_io import build_qwen_boxed_prompt, flatten_limit_of_rlvr_rows
 
 
 def test_flatten_limit_of_rlvr_rows_reconstructs_prompt():

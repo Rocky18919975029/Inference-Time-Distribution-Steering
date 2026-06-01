@@ -1,4 +1,4 @@
-from offline_subtb.limit_of_rlvr_io import build_qwen_boxed_prompt
+from itds.limit_of_rlvr_io import build_qwen_boxed_prompt
 from scripts.rollout_pipeline import normalize_prompt
 
 

@@ -9,8 +9,8 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from offline_subtb.limit_of_rlvr_io import build_qwen_boxed_prompt
-from offline_subtb.utils import read_jsonl, write_jsonl
+from itds.jsonl import read_jsonl, write_jsonl
+from itds.limit_of_rlvr_io import build_qwen_boxed_prompt
 
 def _loads_if_json(value: Any) -> Any:
     if isinstance(value, str):

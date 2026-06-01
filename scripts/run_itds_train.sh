@@ -13,7 +13,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 CONFIG="${CONFIG:-${ROOT_DIR}/configs/itds_qwen25_7b_math.yaml}"
 MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-Qwen/Qwen2.5-7B}"
-TRAIN_DATA="${TRAIN_DATA:-${ROOT_DIR}/data/full_train_subtb_with_ref.jsonl}"
+TRAIN_DATA="${TRAIN_DATA:-${ROOT_DIR}/data/full_train_subtb.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/outputs/itds_tb_qwen25_7b}"
 OBJECTIVE="${OBJECTIVE:-tb}"
 TOP_K="${TOP_K:-64}"

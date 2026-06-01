@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from offline_subtb.limit_of_rlvr_io import build_qwen_boxed_prompt
+from itds.limit_of_rlvr_io import build_qwen_boxed_prompt
 
 
 def _ground_truth(row: dict[str, Any]) -> str:

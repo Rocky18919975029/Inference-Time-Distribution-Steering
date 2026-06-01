@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 
-from offline_subtb.limit_of_rlvr_io import load_and_flatten_limit_of_rlvr_jsonl
-from offline_subtb.utils import write_jsonl
+from itds.jsonl import write_jsonl
+from itds.limit_of_rlvr_io import load_and_flatten_limit_of_rlvr_jsonl
 
 
 def main() -> None:
