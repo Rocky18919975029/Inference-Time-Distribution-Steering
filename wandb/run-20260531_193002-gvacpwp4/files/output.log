@@ -1,0 +1,4 @@
+Loading checkpoint shards: 100%|█████████████████████████████████████| 4/4 [00:00<00:00, 10.73it/s]
+{'trainable_params': 41882625, 'total_params': 7657499137, 'trainable_ratio': 0.0054694913118081626}
+itds:  10%|█████▋                                                   | 1/10 [01:35<14:16, 95.19s/it]
+{'step': 1, 'loss': 32.753849029541016, 'reward_mean': 0.375, 'log_pi_mean': -66.1318588256836, 'log_ref_mean': -66.12196350097656, 'kl_mean': -0.009899139404296875, 'valid_tokens_mean': 356.25, 'advantage_mean': -7.359372615814209, 'advantage_std': 3.833770751953125, 'num_tokens': 2850.0, 'policy_loss': -1.6752359867095947, 'value_loss': 68.85816955566406, 'token_reward_mean': 0.0010665225563570857, 'return_mean': 0.39549267292022705, 'grad_norm': 1578.68994140625, 'learning_rate': 5e-06}

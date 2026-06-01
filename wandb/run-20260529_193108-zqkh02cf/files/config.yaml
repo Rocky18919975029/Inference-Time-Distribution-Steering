@@ -1,0 +1,187 @@
+_wandb:
+    value:
+        cli_version: 0.27.0
+        e:
+            zmalxfq4p7p5v1925n87cobandcwpziv:
+                args:
+                    - --config
+                    - /home/data/rocky/Inference-Time-Distribution-Steering/configs/itds_qwen25_7b_math.yaml
+                    - --override
+                    - model_name_or_path=Qwen/Qwen2.5-7B
+                    - --override
+                    - train_data_path=/home/data/rocky/Inference-Time-Distribution-Steering/data/full_train_subtb_with_ref.jsonl
+                    - --override
+                    - output_dir=/home/data/rocky/Inference-Time-Distribution-Steering/outputs/full_itds_ac_token_top64_r256_d10_gbs512_a005_b05_lr5e6_4gpu
+                    - --override
+                    - objective=ac
+                    - --override
+                    - top_k=64
+                    - --override
+                    - rank=256
+                    - --override
+                    - actor_depth=10
+                    - --override
+                    - critic_depth=10
+                    - --override
+                    - alpha=0.05
+                    - --override
+                    - beta=0.5
+                    - --override
+                    - clip_epsilon=0.2
+                    - --override
+                    - value_loss_weight=0.5
+                    - --override
+                    - max_steps=0
+                    - --override
+                    - num_epochs=1
+                    - --override
+                    - save_steps=500
+                    - --override
+                    - logging_steps=5
+                    - --override
+                    - per_device_train_batch_size=8
+                    - --override
+                    - gradient_accumulation_steps=8
+                    - --override
+                    - learning_rate=0.000005
+                    - --override
+                    - weight_decay=0.0
+                    - --override
+                    - gradient_clipping=0.5
+                    - --override
+                    - resume_from_checkpoint=none
+                    - --override
+                    - wandb_project=itds
+                    - --override
+                    - wandb_run_name=full_itds_ac_token_top64_r256_d10_gbs512_a005_b05_lr5e6_4gpu
+                    - --override=wandb_entity=null
+                    - --override=wandb_run_id=null
+                    - --override=wandb_mode=null
+                cpu_count: 64
+                cpu_count_logical: 128
+                cudaVersion: "12.8"
+                disk:
+                    /:
+                        total: "589431914496"
+                        used: "31837388800"
+                email: zhongal@connect.hkust-gz.edu.cn
+                executable: /data/rocky/miniconda3/envs/simplerl/bin/python3.10
+                git:
+                    commit: 0330dcf4c72e23ffb8f729deac57f17c772e87b1
+                    remote: https://github.com/Rocky18919975029/Inference-Time-Distribution-Steering.git
+                gpu: NVIDIA RTX 5880 Ada Generation
+                gpu_count: 4
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 14080
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 5880 Ada Generation
+                      uuid: GPU-1536a586-94bb-1deb-8848-1c35f728abe5
+                    - architecture: Ada
+                      cudaCores: 14080
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 5880 Ada Generation
+                      uuid: GPU-376debdc-68af-c42a-83e8-f27821053381
+                    - architecture: Ada
+                      cudaCores: 14080
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 5880 Ada Generation
+                      uuid: GPU-68933531-dc3a-7207-4476-1d3c3c75dcdd
+                    - architecture: Ada
+                      cudaCores: 14080
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 5880 Ada Generation
+                      uuid: GPU-cc75b76c-b025-3404-4aa0-39a40135cbc8
+                host: admin1-ESC4000A-E12
+                memory:
+                    total: "810891022336"
+                os: Linux-6.8.0-60-generic-x86_64-with-glibc2.35
+                program: -m itds.train
+                python: CPython 3.10.20
+                root: /data/rocky/Inference-Time-Distribution-Steering
+                startedAt: "2026-05-29T11:31:08.214818Z"
+                writerId: zmalxfq4p7p5v1925n87cobandcwpziv
+        m: []
+        python_version: 3.10.20
+        t:
+            "1":
+                - 1
+                - 11
+                - 49
+                - 71
+            "2":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 51
+                - 71
+            "3":
+                - 2
+                - 13
+                - 61
+            "4": 3.10.20
+            "5": 0.27.0
+            "6": 4.47.1
+            "12": 0.27.0
+            "13": linux-x86_64
+actor_depth:
+    value: 10
+alpha:
+    value: 0.05
+beta:
+    value: 0.5
+bf16:
+    value: true
+clip_epsilon:
+    value: 0.2
+critic_depth:
+    value: 10
+dataloader_num_workers:
+    value: 0
+gradient_accumulation_steps:
+    value: 8
+gradient_clipping:
+    value: 0.5
+learning_rate:
+    value: 5e-06
+logging_steps:
+    value: 5
+max_steps:
+    value: 0
+model_name_or_path:
+    value: Qwen/Qwen2.5-7B
+num_epochs:
+    value: 1
+objective:
+    value: ac
+output_dir:
+    value: /home/data/rocky/Inference-Time-Distribution-Steering/outputs/full_itds_ac_token_top64_r256_d10_gbs512_a005_b05_lr5e6_4gpu
+per_device_train_batch_size:
+    value: 8
+rank:
+    value: 256
+resume_from_checkpoint:
+    value: null
+save_steps:
+    value: 500
+seed:
+    value: 1
+top_k:
+    value: 64
+train_data_path:
+    value: /home/data/rocky/Inference-Time-Distribution-Steering/data/full_train_subtb_with_ref.jsonl
+value_loss_weight:
+    value: 0.5
+wandb_entity:
+    value: null
+wandb_mode:
+    value: null
+wandb_project:
+    value: itds
+wandb_run_id:
+    value: null
+wandb_run_name:
+    value: full_itds_ac_token_top64_r256_d10_gbs512_a005_b05_lr5e6_4gpu
+weight_decay:
+    value: 0

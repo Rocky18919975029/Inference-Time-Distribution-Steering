@@ -67,6 +67,7 @@ def _select_response(row: dict, fallback_response: str = "") -> tuple[str, str]:
         value = _sample_value(row.get(field), sample_id)
         if value is not None and str(value):
             return str(value), field
+
     return fallback_response, "arg:response" if fallback_response else "missing"
 
 
@@ -90,6 +91,7 @@ def _inspect_response(
 
     prompt_ids = tokenizer(prompt, add_special_tokens=False).input_ids
     full_text = prompt + response
+
     encoded = tokenizer(
         full_text,
         add_special_tokens=False,
@@ -98,8 +100,10 @@ def _inspect_response(
         truncation=bool(max_length),
         max_length=max_length if max_length else None,
     )
+
     input_ids = encoded.input_ids.to(device)
     offsets = encoded.offset_mapping[0].tolist()
+
     if input_ids.shape[1] < 2:
         raise ValueError(f"Need at least two tokens to inspect next-token entropy for row {row_index}.")
 
@@ -108,20 +112,28 @@ def _inspect_response(
 
     response_start = len(prompt)
     candidates = []
+
     for pos in range(logits.shape[0]):
         target_pos = pos + 1
         char_start, char_end = offsets[target_pos]
+
         if char_end <= response_start:
             continue
+
         target_id = int(input_ids[0, target_pos].item())
+
         top_values, top_ids = torch.topk(logits[pos], k=min(top_k, logits.shape[-1]))
+
         entropy_nats = float(_entropy_from_logits(top_values.float()).cpu())
         entropy_bits = entropy_nats / math.log(2)
+
         rank_matches = (top_ids == target_id).nonzero(as_tuple=False)
         target_rank = int(rank_matches[0].item()) + 1 if rank_matches.numel() else None
+
         target_logprob = None
         if target_rank is not None:
             target_logprob = float(torch.log_softmax(top_values.float(), dim=-1)[target_rank - 1].cpu())
+
         candidates.append(
             {
                 "row": row_index,
@@ -129,7 +141,10 @@ def _inspect_response(
                 "position": int(target_pos),
                 "response_token_index": int(target_pos - len(prompt_ids)),
                 "char_span": [int(char_start), int(char_end)],
-                "response_char_span": [int(char_start - response_start), int(char_end - response_start)],
+                "response_char_span": [
+                    int(char_start - response_start),
+                    int(char_end - response_start),
+                ],
                 "entropy_nats": entropy_nats,
                 "entropy_bits": entropy_bits,
                 "target_token_id": target_id,
@@ -144,7 +159,11 @@ def _inspect_response(
                         "prob": float(prob),
                     }
                     for rank, (token_id, prob) in enumerate(
-                        zip(top_ids[:10].tolist(), torch.softmax(top_values.float(), dim=-1)[:10].cpu().tolist(), strict=True)
+                        zip(
+                            top_ids[:10].tolist(),
+                            torch.softmax(top_values.float(), dim=-1)[:10].cpu().tolist(),
+                            strict=True,
+                        )
                     )
                 ],
                 "context": _context(full_text, int(char_start), int(char_end), context_chars),
@@ -152,6 +171,7 @@ def _inspect_response(
         )
 
     top = sorted(candidates, key=lambda item: item["entropy_nats"], reverse=True)[:top_n]
+
     return {
         "row": row_index,
         "problem_id": row.get("problem_id", row.get("idx", row_index)),
@@ -163,62 +183,142 @@ def _inspect_response(
     }
 
 
-def _highlighted_response(response: str, positions: list[dict]) -> str:
+def _percentile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+
+    values = sorted(values)
+    idx = int(round((len(values) - 1) * q / 100.0))
+    return values[max(0, min(len(values) - 1, idx))]
+
+
+def _entropy_to_color(entropy: float, lo: float, hi: float, gamma: float) -> str:
+    if hi <= lo:
+        t = 0.0
+    else:
+        t = (entropy - lo) / (hi - lo)
+
+    t = max(0.0, min(1.0, t))
+
+    # gamma > 1: 更保守，只有高 entropy 更红
+    # gamma < 1: 放大中低 entropy 的颜色差异
+    gamma = max(gamma, 1e-6)
+    t = t ** gamma
+
+    # 连续渐变：浅黄 -> 橙 -> 红
+    if t < 0.5:
+        u = t / 0.5
+        r = 255
+        g = int(245 - 125 * u)
+        b = int(180 - 120 * u)
+    else:
+        u = (t - 0.5) / 0.5
+        r = 255
+        g = int(120 - 100 * u)
+        b = int(60 - 50 * u)
+
+    return f"rgb({r},{g},{b})"
+
+
+def _highlighted_response(
+    response: str,
+    positions: list[dict],
+    heatmap_gamma: float,
+    rank_label_top_n: int,
+) -> str:
     highlights = []
-    entropies = [item["entropy_nats"] for item in positions]
-    min_entropy = min(entropies) if entropies else 0.0
-    max_entropy = max(entropies) if entropies else 1.0
-    denom = max(max_entropy - min_entropy, 1e-9)
+
+    entropies = [float(item["entropy_nats"]) for item in positions]
+
+    # Percentile clipping: 避免少数极端高 entropy token 压扁整体颜色分布
+    min_entropy = _percentile(entropies, 5)
+    max_entropy = _percentile(entropies, 95)
+
     for rank, item in enumerate(positions, start=1):
         start, end = item["response_char_span"]
         if start < 0 or end <= start:
             continue
-        intensity = (item["entropy_nats"] - min_entropy) / denom
-        alpha = 0.25 + 0.65 * intensity
+
+        entropy = float(item["entropy_nats"])
+        bg = _entropy_to_color(entropy, min_entropy, max_entropy, heatmap_gamma)
+
         title = (
             f"rank #{rank} | entropy={item['entropy_nats']:.4f} nats / {item['entropy_bits']:.4f} bits"
             f" | token={item['target_token']!r} | top-k-rank={item['target_rank_in_top_k']}"
         )
-        top_tokens = ", ".join(f"{tok['rank']}:{tok['token']}({tok['prob']:.3f})" for tok in item["top_tokens"][:5])
+        top_tokens = ", ".join(
+            f"{tok['rank']}:{tok['token']}({tok['prob']:.3f})"
+            for tok in item["top_tokens"][:5]
+        )
+
         highlights.append(
             {
                 "start": start,
                 "end": end,
                 "rank": rank,
-                "style": f"background: rgba(255, 80, 0, {alpha:.3f}); border-bottom: 2px solid rgba(150, 0, 0, 0.55);",
+                "style": (
+                    f"background: {bg}; "
+                    "border-bottom: 2px solid rgba(120, 0, 0, 0.45);"
+                ),
                 "title": title + " | top tokens: " + top_tokens,
             }
         )
+
     highlights.sort(key=lambda item: (item["start"], item["end"]))
 
     chunks = []
     cursor = 0
+
     for item in highlights:
         start = max(cursor, min(len(response), item["start"]))
         end = max(start, min(len(response), item["end"]))
+
         chunks.append(html.escape(response[cursor:start]))
         token_text = html.escape(response[start:end])
+
+        rank_prefix = ""
+        if rank_label_top_n > 0 and item["rank"] <= rank_label_top_n:
+            rank_prefix = f'<sup>{item["rank"]}</sup>'
+
         chunks.append(
             f'<span class="hot-token" style="{item["style"]}" title="{html.escape(item["title"])}">'
-            f'<sup>{item["rank"]}</sup>{token_text}</span>'
+            f'{rank_prefix}{token_text}</span>'
         )
+
         cursor = end
+
     chunks.append(html.escape(response[cursor:]))
+
     return "".join(chunks)
 
 
-def _write_html(result: dict, path: Path) -> None:
+def _write_html(
+    result: dict,
+    path: Path,
+    heatmap_gamma: float,
+    rank_label_top_n: int,
+) -> None:
     blocks = []
+
     for item in result["per_response"]:
-        highlighted = _highlighted_response(item["response"], item["top_entropy_positions"])
+        highlighted = _highlighted_response(
+            item["response"],
+            item["top_entropy_positions"],
+            heatmap_gamma=heatmap_gamma,
+            rank_label_top_n=rank_label_top_n,
+        )
+
         raw_response = html.escape(item["response"])
         response_chars = len(item["response"])
         source = html.escape(str(item.get("response_source", "response")))
+
         rows = []
         for rank, pos in enumerate(item["top_entropy_positions"], start=1):
             top_tokens = " ".join(
-                f"<code>{html.escape(tok['token'])}</code>:{tok['prob']:.3f}" for tok in pos["top_tokens"][:5]
+                f"<code>{html.escape(tok['token'])}</code>:{tok['prob']:.3f}"
+                for tok in pos["top_tokens"][:5]
             )
+
             rows.append(
                 "<tr>"
                 f"<td>{rank}</td>"
@@ -230,6 +330,7 @@ def _write_html(result: dict, path: Path) -> None:
                 f"<td>{top_tokens}</td>"
                 "</tr>"
             )
+
         blocks.append(
             f"""
             <section>
@@ -240,12 +341,23 @@ def _write_html(result: dict, path: Path) -> None:
               <h3>Entropy heatmap over full response</h3>
               <pre class="response heatmap-response">{highlighted}</pre>
               <table>
-                <thead><tr><th>#</th><th>response token</th><th>entropy nats</th><th>entropy bits</th><th>target</th><th>target rank</th><th>top candidates</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>response token</th>
+                    <th>entropy nats</th>
+                    <th>entropy bits</th>
+                    <th>target</th>
+                    <th>target rank</th>
+                    <th>top candidates</th>
+                  </tr>
+                </thead>
                 <tbody>{''.join(rows)}</tbody>
               </table>
             </section>
             """
         )
+
     document = f"""<!doctype html>
 <html>
 <head>
@@ -258,7 +370,16 @@ def _write_html(result: dict, path: Path) -> None:
     .submeta {{ color: #666; margin: 4px 0 12px; }}
     section {{ border-top: 1px solid #ddd; padding-top: 20px; margin-top: 24px; }}
     h3 {{ margin: 18px 0 8px; }}
-    .response {{ white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.65; border: 1px solid #ddd; padding: 16px; border-radius: 6px; background: #fafafa; }}
+    .response {{
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height: 1.65;
+      border: 1px solid #ddd;
+      padding: 16px;
+      border-radius: 6px;
+      background: #fafafa;
+    }}
     .raw-response {{ max-height: none; }}
     .hot-token {{ border-radius: 3px; padding: 1px 2px; }}
     sup {{ font-size: 10px; color: #7a0000; margin-right: 1px; }}
@@ -270,17 +391,28 @@ def _write_html(result: dict, path: Path) -> None:
 </head>
 <body>
   <h1>Top-k Entropy Heatmap</h1>
-  <div class="meta">model={html.escape(str(result["model"]))} | top-k={result["top_k"]} | responses={result["num_responses"]} | scored tokens={result["num_response_tokens_scored"]}</div>
+  <div class="meta">
+    model={html.escape(str(result["model"]))}
+    | top-k={result["top_k"]}
+    | responses={result["num_responses"]}
+    | scored tokens={result["num_response_tokens_scored"]}
+    | heatmap-gamma={heatmap_gamma}
+    | rank-label-top-n={rank_label_top_n}
+  </div>
   {''.join(blocks)}
 </body>
 </html>
 """
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(document, encoding="utf-8")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect per-token base top-k entropy for prompt/response trajectories.")
+    parser = argparse.ArgumentParser(
+        description="Inspect per-token base top-k entropy for prompt/response trajectories."
+    )
+
     parser.add_argument("--input", help="Training JSONL containing prompt and response.")
     parser.add_argument("--row", type=int, default=0, help="JSONL row index to inspect.")
     parser.add_argument("--rows", default="", help="Comma-separated JSONL row indices to inspect, e.g. 0,5,9.")
@@ -295,12 +427,40 @@ def main() -> None:
     parser.add_argument("--max-length", type=int, default=0, help="Optional left-truncation length for model input.")
     parser.add_argument("--output", default="", help="Optional JSON output path.")
     parser.add_argument("--html-output", default="", help="Optional HTML heatmap output path.")
+
+    parser.add_argument(
+        "--heatmap-gamma",
+        type=float,
+        default=1.2,
+        help=(
+            "Gamma correction for heatmap color mapping. "
+            "gamma > 1 makes only high-entropy tokens redder; "
+            "gamma < 1 makes mid/low entropy differences more visible."
+        ),
+    )
+    parser.add_argument(
+        "--rank-label-top-n",
+        type=int,
+        default=50,
+        help=(
+            "Only show visible rank labels for the top-N entropy tokens. "
+            "Set 0 to hide all rank labels."
+        ),
+    )
+
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+
     dtype = torch.bfloat16 if torch.cuda.is_available() else None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype, trust_remote_code=True).to(device)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=dtype,
+        trust_remote_code=True,
+    ).to(device)
+
     model.eval()
 
     if args.input:
@@ -311,8 +471,10 @@ def main() -> None:
 
     per_response = []
     global_positions = []
+
     for row_index, row in loaded_rows:
         response, response_source = _select_response(row, args.response if not args.input else "")
+
         item = _inspect_response(
             model=model,
             tokenizer=tokenizer,
@@ -327,6 +489,7 @@ def main() -> None:
             context_chars=args.context_chars,
             max_length=args.max_length,
         )
+
         per_response.append(item)
         global_positions.extend(item["top_entropy_positions"])
 
@@ -335,18 +498,33 @@ def main() -> None:
         "rows": [item[0] for item in loaded_rows],
         "model": args.model,
         "top_k": args.top_k,
+        "top_n": args.top_n,
+        "heatmap_gamma": args.heatmap_gamma,
+        "rank_label_top_n": args.rank_label_top_n,
         "num_responses": len(per_response),
         "num_response_tokens_scored": sum(item["num_response_tokens_scored"] for item in per_response),
-        "global_top_entropy_positions": sorted(global_positions, key=lambda item: item["entropy_nats"], reverse=True)[: args.top_n],
+        "global_top_entropy_positions": sorted(
+            global_positions,
+            key=lambda item: item["entropy_nats"],
+            reverse=True,
+        )[: args.top_n],
         "per_response": per_response,
     }
+
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+
     if args.html_output:
-        _write_html(result, Path(args.html_output))
+        _write_html(
+            result,
+            Path(args.html_output),
+            heatmap_gamma=args.heatmap_gamma,
+            rank_label_top_n=args.rank_label_top_n,
+        )
 
 
 if __name__ == "__main__":

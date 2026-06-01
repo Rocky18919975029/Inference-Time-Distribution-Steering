@@ -1,0 +1,20 @@
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_setup.py:_flush():81] Current SDK version is 0.27.0
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_setup.py:_flush():81] Configure stats pid to 1692903
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_setup.py:_flush():81] Loading settings from environment variables
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_init.py:setup_run_log_directory():723] Logging user logs to /data/rocky/Inference-Time-Distribution-Steering/wandb/run-20260531_192556-anom551a/logs/debug.log
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_init.py:setup_run_log_directory():724] Logging internal logs to /data/rocky/Inference-Time-Distribution-Steering/wandb/run-20260531_192556-anom551a/logs/debug-internal.log
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_init.py:init():851] calling init triggers
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_init.py:init():856] wandb.init called with sweep_config: {}
+config: {'_wandb': {}}
+2026-05-31 19:25:56,748 INFO    MainThread:1692903 [wandb_init.py:init():899] starting backend
+2026-05-31 19:25:57,032 INFO    MainThread:1692903 [wandb_init.py:init():914] sending inform_init request
+2026-05-31 19:25:58,481 INFO    MainThread:1692903 [wandb_init.py:init():919] backend started and connected
+2026-05-31 19:25:58,483 INFO    MainThread:1692903 [wandb_init.py:init():989] updated telemetry
+2026-05-31 19:25:58,491 INFO    MainThread:1692903 [wandb_init.py:init():1012] communicating run to backend with 90.0 second timeout
+2026-05-31 19:25:59,513 INFO    MainThread:1692903 [wandb_init.py:init():1057] starting run threads in backend
+2026-05-31 19:25:59,625 INFO    MainThread:1692903 [wandb_run.py:_console_start():2509] atexit reg
+2026-05-31 19:25:59,625 INFO    MainThread:1692903 [wandb_run.py:_redirect():2359] redirect: wrap_raw
+2026-05-31 19:25:59,625 INFO    MainThread:1692903 [wandb_run.py:_redirect():2428] Wrapping output streams.
+2026-05-31 19:25:59,625 INFO    MainThread:1692903 [wandb_run.py:_redirect():2451] Redirects installed.
+2026-05-31 19:25:59,627 INFO    MainThread:1692903 [wandb_init.py:init():1095] run started, returning control to user process
+2026-05-31 19:25:59,627 INFO    MainThread:1692903 [wandb_run.py:_config_callback():1332] config_cb None None {'model_name_or_path': 'Qwen/Qwen2.5-7B', 'train_data_path': '/home/data/rocky/Inference-Time-Distribution-Steering/data/full_train_subtb.jsonl', 'output_dir': '/home/data/rocky/Inference-Time-Distribution-Steering/outputs/debug_itds_ac_fullresp_bs2_gas8', 'objective': 'ac', 'top_k': 64, 'rank': 256, 'actor_depth': 10, 'critic_depth': 10, 'alpha': 0.05, 'token_basis_init_std': 0.001, 'beta': 0.5, 'clip_epsilon': 0.2, 'value_loss_weight': 0.5, 'learning_rate': 5e-06, 'weight_decay': 0.0, 'per_device_train_batch_size': 2, 'gradient_accumulation_steps': 8, 'max_steps': 10, 'num_epochs': 0, 'save_steps': 10, 'logging_steps': 1, 'gradient_clipping': 0.5, 'bf16': True, 'seed': 1, 'dataloader_num_workers': 0, 'resume_from_checkpoint': None, 'wandb_project': 'itds', 'wandb_entity': None, 'wandb_run_name': 'debug_itds_ac_fullresp_bs2_gas8', 'wandb_run_id': None, 'wandb_mode': None}

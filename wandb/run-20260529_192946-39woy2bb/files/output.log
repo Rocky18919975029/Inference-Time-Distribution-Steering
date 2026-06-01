@@ -1,0 +1,3 @@
+Loading checkpoint shards: 100%|████████████████████████████████████████| 4/4 [00:00<00:00, 10.39it/s]
+{'trainable_params': 41882625, 'total_params': 7657499137, 'trainable_ratio': 0.0054694913118081626}
+itds:   0%|                                  | 4/2131 [00:13<1:54:07,  3.22s/it, loss=336.4, reward=1]

@@ -1,0 +1,58 @@
+Loading checkpoint shards: 100%|█████████████████████████████████████| 4/4 [00:00<00:00, 10.71it/s]
+{'trainable_params': 5113473, 'total_params': 7620729985, 'trainable_ratio': 0.0006709951684503883}
+itds:   0%|                             | 4/1000 [00:47<3:09:08, 11.39s/it, loss=23.81, reward=0.5]Traceback (most recent call last):
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/train.py", line 253, in <module>
+    main()
+  File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/train.py", line 223, in main
+    steering_batch = accelerator.unwrap_model(model).encode_batch(tokenizer, examples, accelerator.device)
+  File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/model.py", line 163, in encode_batch
+    row_values.append(self.value_head(state).squeeze(-1))
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/container.py", line 219, in forward
+    input = module(input)
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/model.py", line 32, in forward
+    return x + self.activation(self.linear(x))
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+KeyboardInterrupt
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+[rank0]:     return _run_code(code, main_globals, None,
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/runpy.py", line 86, in _run_code
+[rank0]:     exec(code, run_globals)
+[rank0]:   File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/train.py", line 253, in <module>
+[rank0]:     main()
+[rank0]:   File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/train.py", line 223, in main
+[rank0]:     steering_batch = accelerator.unwrap_model(model).encode_batch(tokenizer, examples, accelerator.device)
+[rank0]:   File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/model.py", line 163, in encode_batch
+[rank0]:     row_values.append(self.value_head(state).squeeze(-1))
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/container.py", line 219, in forward
+[rank0]:     input = module(input)
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/home/data/rocky/Inference-Time-Distribution-Steering/src/itds/model.py", line 32, in forward
+[rank0]:     return x + self.activation(self.linear(x))
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/data/rocky/miniconda3/envs/simplerl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]: KeyboardInterrupt
