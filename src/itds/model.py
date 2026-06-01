@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import torch
@@ -98,6 +99,28 @@ class TopKLowRankSteering(nn.Module):
     def load_steering_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         self.load_state_dict(state_dict, strict=False)
 
+    def _last_hidden_state(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        if hasattr(self.base_model, "model") and hasattr(self.base_model, "lm_head"):
+            output = self.base_model.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+            )
+            return output.last_hidden_state[:, :-1, :].detach()
+
+        output = self.base_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            use_cache=False,
+        )
+        return output.hidden_states[-1][:, :-1, :].detach()
+
+    def _logits_from_hidden(self, hidden: torch.Tensor) -> torch.Tensor:
+        if hasattr(self.base_model, "lm_head"):
+            return self.base_model.lm_head(hidden)
+        return self.base_model.get_output_embeddings()(hidden)
+
     def encode_batch(self, tokenizer, examples, device: torch.device | str) -> SteeringBatch:
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -115,14 +138,52 @@ class TopKLowRankSteering(nn.Module):
         input_ids = encoded.input_ids.to(device)
         attention_mask = encoded.attention_mask.to(device)
         with torch.no_grad():
-            output = self.base_model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                use_cache=False,
-            )
-            logits = output.logits[:, :-1, :].detach()
-            hidden = output.hidden_states[-1][:, :-1, :].detach()
+            hidden = self._last_hidden_state(input_ids, attention_mask)
+
+        token_rows: list[int] = []
+        token_positions: list[int] = []
+        for row, _example in enumerate(examples):
+            prompt_len = len(prompt_ids[row])
+            seq_len = int(attention_mask[row].sum().item())
+            start = max(prompt_len - 1, 0)
+            end = max(seq_len - 1, start)
+            token_rows.extend([row] * max(end - start, 0))
+            token_positions.extend(range(start, end))
+
+        if not token_rows:
+            return self._empty_batch(device)
+
+        token_rows_tensor = torch.tensor(token_rows, dtype=torch.long, device=device)
+        token_positions_tensor = torch.tensor(token_positions, dtype=torch.long, device=device)
+        hidden_tokens = hidden[token_rows_tensor, token_positions_tensor]
+        target_ids = input_ids[token_rows_tensor, token_positions_tensor + 1]
+
+        with torch.no_grad():
+            base_logits = self._logits_from_hidden(hidden_tokens).detach()
+            top_values, top_ids = torch.topk(base_logits, k=min(self.top_k, base_logits.shape[-1]), dim=-1)
+
+        matches = top_ids.eq(target_ids.unsqueeze(-1))
+        valid_mask = matches.any(dim=-1)
+        if not bool(valid_mask.any().item()):
+            return self._empty_batch(device)
+
+        match_indices = matches.to(torch.long).argmax(dim=-1)[valid_mask]
+        valid_rows = token_rows_tensor[valid_mask]
+        valid_hidden = hidden_tokens[valid_mask]
+        valid_top_ids = top_ids[valid_mask]
+        steering_dtype = self.state_projector[0].weight.dtype
+        valid_top_values = top_values[valid_mask].to(dtype=steering_dtype)
+        states = valid_hidden.to(dtype=steering_dtype)
+        u = self.state_projector(states)
+        steering = (self.token_basis(valid_top_ids) * u.unsqueeze(1)).sum(dim=-1)
+        steered_logits = valid_top_values + self.alpha * steering
+        token_log_pi = torch.log_softmax(steered_logits, dim=-1).gather(1, match_indices.unsqueeze(1)).squeeze(1)
+        token_log_ref = torch.log_softmax(valid_top_values, dim=-1).gather(1, match_indices.unsqueeze(1)).squeeze(1).detach()
+        token_values = self.value_head(states).squeeze(-1)
+
+        per_sequence: OrderedDict[int, list[int]] = OrderedDict()
+        for token_index, row in enumerate(valid_rows.tolist()):
+            per_sequence.setdefault(row, []).append(token_index)
 
         log_pi_values: list[torch.Tensor] = []
         log_ref_values: list[torch.Tensor] = []
@@ -130,68 +191,20 @@ class TopKLowRankSteering(nn.Module):
         rewards: list[float] = []
         group_ids: list[str] = []
         valid_counts: list[int] = []
-        token_log_pi_values: list[torch.Tensor] = []
-        token_log_ref_values: list[torch.Tensor] = []
-        token_value_values: list[torch.Tensor] = []
-        token_to_sequence_values: list[int] = []
-        token_is_terminal_values: list[float] = []
+        token_to_sequence_values: list[int] = [0] * token_log_pi.numel()
+        token_is_terminal_values: list[float] = [0.0] * token_log_pi.numel()
 
-        for row, example in enumerate(examples):
-            prompt_len = len(prompt_ids[row])
-            seq_len = int(attention_mask[row].sum().item())
-            start = max(prompt_len - 1, 0)
-            end = max(seq_len - 1, start)
-            row_log_pi: list[torch.Tensor] = []
-            row_log_ref: list[torch.Tensor] = []
-            row_values: list[torch.Tensor] = []
-            for pos in range(start, end):
-                target_id = input_ids[row, pos + 1]
-                base_logits = logits[row, pos]
-                top_values, top_ids = torch.topk(base_logits, k=min(self.top_k, base_logits.shape[-1]))
-                match = top_ids.eq(target_id).nonzero(as_tuple=False)
-                if match.numel() == 0:
-                    continue
-                match_index = int(match[0].item())
-                steering_dtype = self.state_projector[0].weight.dtype
-                state = hidden[row, pos].to(dtype=steering_dtype)
-                top_values = top_values.to(dtype=steering_dtype)
-                u = self.state_projector(state)
-                steering = (self.token_basis(top_ids) * u.unsqueeze(0)).sum(dim=-1)
-                steered_logits = top_values + self.alpha * steering
-                row_log_pi.append(torch.log_softmax(steered_logits, dim=-1)[match_index])
-                row_log_ref.append(torch.log_softmax(top_values, dim=-1)[match_index])
-                row_values.append(self.value_head(state).squeeze(-1))
-
-            if row_log_pi:
-                sequence_index = len(log_pi_values)
-                log_pi_values.append(torch.stack(row_log_pi).sum())
-                log_ref_values.append(torch.stack(row_log_ref).sum())
-                value_values.append(torch.stack(row_values).mean())
-                rewards.append(float(example.reward))
-                group_ids.append(example.group_id)
-                valid_counts.append(len(row_log_pi))
-                token_log_pi_values.extend(row_log_pi)
-                token_log_ref_values.extend(row_log_ref)
-                token_value_values.extend(row_values)
-                token_to_sequence_values.extend([sequence_index] * len(row_log_pi))
-                token_is_terminal_values.extend([0.0] * (len(row_log_pi) - 1) + [1.0])
-
-        if not log_pi_values:
-            trainable_param = next(param for param in self.parameters() if param.requires_grad)
-            zero = trainable_param.sum() * 0.0
-            return SteeringBatch(
-                log_pi=zero.reshape(1),
-                log_ref=zero.detach().reshape(1),
-                values=zero.reshape(1),
-                rewards=torch.zeros(1, device=device),
-                group_ids=["empty"],
-                num_valid_tokens=torch.zeros(1, device=device),
-                token_log_pi=zero.reshape(1),
-                token_log_ref=zero.detach().reshape(1),
-                token_values=zero.reshape(1),
-                token_to_sequence=torch.zeros(1, dtype=torch.long, device=device),
-                token_is_terminal=torch.ones(1, device=device),
-            )
+        for sequence_index, (row, token_indices) in enumerate(per_sequence.items()):
+            index_tensor = torch.tensor(token_indices, dtype=torch.long, device=device)
+            log_pi_values.append(token_log_pi[index_tensor].sum())
+            log_ref_values.append(token_log_ref[index_tensor].sum())
+            value_values.append(token_values[index_tensor].mean())
+            rewards.append(float(examples[row].reward))
+            group_ids.append(examples[row].group_id)
+            valid_counts.append(len(token_indices))
+            for token_index in token_indices:
+                token_to_sequence_values[token_index] = sequence_index
+            token_is_terminal_values[token_indices[-1]] = 1.0
 
         return SteeringBatch(
             log_pi=torch.stack(log_pi_values),
@@ -200,9 +213,26 @@ class TopKLowRankSteering(nn.Module):
             rewards=torch.tensor(rewards, dtype=torch.float32, device=device),
             group_ids=group_ids,
             num_valid_tokens=torch.tensor(valid_counts, dtype=torch.float32, device=device),
-            token_log_pi=torch.stack(token_log_pi_values),
-            token_log_ref=torch.stack(token_log_ref_values).detach(),
-            token_values=torch.stack(token_value_values),
+            token_log_pi=token_log_pi,
+            token_log_ref=token_log_ref,
+            token_values=token_values,
             token_to_sequence=torch.tensor(token_to_sequence_values, dtype=torch.long, device=device),
             token_is_terminal=torch.tensor(token_is_terminal_values, dtype=torch.float32, device=device),
+        )
+
+    def _empty_batch(self, device: torch.device | str) -> SteeringBatch:
+        trainable_param = next(param for param in self.parameters() if param.requires_grad)
+        zero = trainable_param.sum() * 0.0
+        return SteeringBatch(
+            log_pi=zero.reshape(1),
+            log_ref=zero.detach().reshape(1),
+            values=zero.reshape(1),
+            rewards=torch.zeros(1, device=device),
+            group_ids=["empty"],
+            num_valid_tokens=torch.zeros(1, device=device),
+            token_log_pi=zero.reshape(1),
+            token_log_ref=zero.detach().reshape(1),
+            token_values=zero.reshape(1),
+            token_to_sequence=torch.zeros(1, dtype=torch.long, device=device),
+            token_is_terminal=torch.ones(1, device=device),
         )
