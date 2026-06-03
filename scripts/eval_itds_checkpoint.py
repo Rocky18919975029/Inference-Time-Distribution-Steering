@@ -145,11 +145,18 @@ def main() -> None:
         parser.error("--checkpoint is required unless --base-only is set")
 
     checkpoint = Path(args.checkpoint).resolve() if args.checkpoint else None
+    steering_path = checkpoint / "steering.pt" if checkpoint is not None else None
     payload: dict[str, Any] = {}
     config: dict[str, Any] = {}
     if checkpoint is not None:
-        payload = torch.load(checkpoint / "steering.pt", map_location="cpu")
+        if not steering_path.exists():
+            raise FileNotFoundError(f"Steering checkpoint not found: {steering_path}")
+        print(f"[itds-eval] checkpoint_dir: {checkpoint}", flush=True)
+        print(f"[itds-eval] steering_file:  {steering_path}", flush=True)
+        payload = torch.load(steering_path, map_location="cpu")
         config = payload.get("config", {})
+    elif args.base_only:
+        print("[itds-eval] mode: base-only; no steering checkpoint will be loaded", flush=True)
     model_name = args.model_name_or_path or config.get("model_name_or_path") or "Qwen/Qwen2.5-7B"
     top_k = args.top_k if args.top_k is not None else int(config.get("top_k", 64))
     rank = args.rank if args.rank is not None else int(config.get("rank", 32))
@@ -158,6 +165,14 @@ def main() -> None:
     alpha = 0.0 if args.base_only else (args.alpha if args.alpha is not None else float(config.get("alpha", 1.0)))
     token_basis_init_std = (
         args.token_basis_init_std if args.token_basis_init_std is not None else float(config.get("token_basis_init_std", 1e-3))
+    )
+    print(f"[itds-eval] base_model: {model_name}", flush=True)
+    print(
+        "[itds-eval] steering_config: "
+        f"base_only={args.base_only} top_k={top_k} rank={rank} "
+        f"actor_depth={actor_depth} critic_depth={critic_depth} "
+        f"alpha={alpha} token_basis_init_std={token_basis_init_std}",
+        flush=True,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -175,6 +190,7 @@ def main() -> None:
     )
     if not args.base_only:
         model.load_steering_state_dict(payload["steering"])
+        print(f"[itds-eval] loaded steering weights from: {steering_path}", flush=True)
     model.to(device)
     model.eval()
 
@@ -183,6 +199,8 @@ def main() -> None:
     rows = _load_eval_rows(Path(args.eval_data), args.max_samples)
     eval_name = "base_only" if args.base_only else checkpoint.name
     output_path = output_dir / f"{eval_name}_itds_eval.jsonl"
+    print(f"[itds-eval] eval_data: {Path(args.eval_data).resolve()}", flush=True)
+    print(f"[itds-eval] output_path: {output_path}", flush=True)
     correct = 0
 
     with output_path.open("w", encoding="utf-8") as handle:
@@ -226,6 +244,7 @@ def main() -> None:
 
     summary = {
         "checkpoint": "base_only" if args.base_only else str(checkpoint),
+        "steering_path": "" if steering_path is None else str(steering_path),
         "model_name_or_path": model_name,
         "top_k": top_k,
         "rank": rank,
