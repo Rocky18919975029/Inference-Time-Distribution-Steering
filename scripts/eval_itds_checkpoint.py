@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -122,6 +124,162 @@ def _ground_truth(row: dict) -> str:
     return ""
 
 
+def _eval_name(args: argparse.Namespace, checkpoint: Path | None) -> str:
+    return "base_only" if args.base_only else checkpoint.name
+
+
+def _shard_ranges(total: int, num_shards: int) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for shard_index in range(num_shards):
+        start = total * shard_index // num_shards
+        end = total * (shard_index + 1) // num_shards
+        ranges.append((start, end))
+    return ranges
+
+
+def _optional_cli_args(args: argparse.Namespace) -> list[str]:
+    cli: list[str] = []
+    optional_values = {
+        "--model-name-or-path": args.model_name_or_path,
+        "--top-k": args.top_k,
+        "--rank": args.rank,
+        "--actor-depth": args.actor_depth,
+        "--critic-depth": args.critic_depth,
+        "--alpha": args.alpha,
+        "--token-basis-init-std": args.token_basis_init_std,
+    }
+    for key, value in optional_values.items():
+        if value is not None and value != "":
+            cli.extend([key, str(value)])
+    return cli
+
+
+def _gpu_ids_for_shards(num_gpus: int) -> list[str]:
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if visible:
+        gpu_ids = [item.strip() for item in visible.split(",") if item.strip()]
+        if len(gpu_ids) >= num_gpus:
+            return gpu_ids[:num_gpus]
+    return [str(index) for index in range(num_gpus)]
+
+
+def _merge_shards(output_dir: Path, eval_name: str, num_shards: int, summary_base: dict[str, Any]) -> dict[str, Any]:
+    merged_output = output_dir / f"{eval_name}_itds_eval.jsonl"
+    correct = 0
+    total = 0
+    shard_summaries: list[dict[str, Any]] = []
+
+    with merged_output.open("w", encoding="utf-8") as out_handle:
+        for shard_index in range(num_shards):
+            shard_summary_path = output_dir / f"summary_shard_{shard_index}.json"
+            if not shard_summary_path.exists():
+                raise FileNotFoundError(f"Missing shard summary: {shard_summary_path}")
+            shard_summary = json.loads(shard_summary_path.read_text(encoding="utf-8"))
+            shard_summaries.append(shard_summary)
+            correct += int(shard_summary.get("correct", 0))
+            total += int(shard_summary.get("total", 0))
+
+            shard_output = Path(shard_summary["output_path"])
+            if not shard_output.exists():
+                raise FileNotFoundError(f"Missing shard output: {shard_output}")
+            with shard_output.open("r", encoding="utf-8") as shard_handle:
+                for line in shard_handle:
+                    out_handle.write(line)
+
+    first_shard = shard_summaries[0] if shard_summaries else {}
+    summary = {
+        **first_shard,
+        **summary_base,
+        "accuracy": correct / total if total else 0.0,
+        "correct": correct,
+        "total": total,
+        "output_path": str(merged_output),
+        "shards": shard_summaries,
+    }
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return summary
+
+
+def _run_parallel_eval(args: argparse.Namespace, checkpoint: Path | None, eval_name: str) -> None:
+    rows = _load_eval_rows(Path(args.eval_data), args.max_samples)
+    ranges = _shard_ranges(len(rows), args.num_gpus)
+    output_dir = Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    gpu_ids = _gpu_ids_for_shards(args.num_gpus)
+    script_path = Path(__file__).resolve()
+
+    print(
+        f"[itds-eval] launching {args.num_gpus} shards for {len(rows)} rows "
+        f"with GPUs {','.join(gpu_ids)}",
+        flush=True,
+    )
+    processes: list[tuple[int, subprocess.Popen]] = []
+    for shard_index, (start, end) in enumerate(ranges):
+        gpu_id = gpu_ids[shard_index]
+        cmd = [
+            sys.executable,
+            str(script_path),
+            "--eval-data",
+            args.eval_data,
+            "--output-dir",
+            str(output_dir),
+            "--max-samples",
+            str(args.max_samples),
+            "--max-tokens",
+            str(args.max_tokens),
+            "--temperature",
+            str(args.temperature),
+            "--top-p",
+            str(args.top_p),
+            "--num-gpus",
+            "1",
+            "--shard-index",
+            str(shard_index),
+            "--start",
+            str(start),
+            "--end",
+            str(end),
+            "--progress-position",
+            str(shard_index),
+        ]
+        if args.checkpoint:
+            cmd.extend(["--checkpoint", args.checkpoint])
+        if args.base_only:
+            cmd.append("--base-only")
+        cmd.extend(_optional_cli_args(args))
+
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = gpu_id
+        print(
+            f"[itds-eval] shard {shard_index} on GPU {gpu_id}: rows [{start}, {end})",
+            flush=True,
+        )
+        processes.append((shard_index, subprocess.Popen(cmd, cwd=str(ROOT_DIR), env=env)))
+
+    failed: tuple[int, int] | None = None
+    for shard_index, process in processes:
+        return_code = process.wait()
+        if return_code != 0 and failed is None:
+            failed = (shard_index, return_code)
+            for other_index, other_process in processes:
+                if other_index != shard_index and other_process.poll() is None:
+                    other_process.terminate()
+
+    if failed is not None:
+        shard_index, return_code = failed
+        raise subprocess.CalledProcessError(return_code, f"eval shard {shard_index}")
+
+    summary_base = {
+        "checkpoint": "base_only" if args.base_only else str(checkpoint),
+        "steering_path": "" if checkpoint is None else str(checkpoint / "steering.pt"),
+        "num_gpus": args.num_gpus,
+        "max_samples": args.max_samples,
+    }
+    summary = _merge_shards(output_dir, eval_name, args.num_gpus, summary_base)
+    print("[itds-eval] merged shard outputs", flush=True)
+    print(json.dumps(summary, indent=2), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate an ITDS steering checkpoint with limit-of-RLVR grading.")
     parser.add_argument("--checkpoint", default="")
@@ -139,12 +297,21 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top-p", type=float, default=1.0)
+    parser.add_argument("--num-gpus", type=int, default=1, help="Run eval shards in parallel across this many GPUs.")
+    parser.add_argument("--start", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--end", type=int, default=-1, help=argparse.SUPPRESS)
+    parser.add_argument("--shard-index", type=int, default=-1, help=argparse.SUPPRESS)
+    parser.add_argument("--progress-position", type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if not args.base_only and not args.checkpoint:
         parser.error("--checkpoint is required unless --base-only is set")
 
     checkpoint = Path(args.checkpoint).resolve() if args.checkpoint else None
+    if args.num_gpus > 1 and args.shard_index < 0:
+        _run_parallel_eval(args, checkpoint, _eval_name(args, checkpoint))
+        return
+
     steering_path = checkpoint / "steering.pt" if checkpoint is not None else None
     payload: dict[str, Any] = {}
     config: dict[str, Any] = {}
@@ -197,14 +364,22 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = _load_eval_rows(Path(args.eval_data), args.max_samples)
-    eval_name = "base_only" if args.base_only else checkpoint.name
-    output_path = output_dir / f"{eval_name}_itds_eval.jsonl"
+    if args.start or args.end >= 0:
+        rows = rows[args.start : args.end if args.end >= 0 else None]
+    eval_name = _eval_name(args, checkpoint)
+    shard_suffix = f"_shard_{args.shard_index}" if args.shard_index >= 0 else ""
+    output_path = output_dir / f"{eval_name}{shard_suffix}_itds_eval.jsonl"
     print(f"[itds-eval] eval_data: {Path(args.eval_data).resolve()}", flush=True)
+    if args.shard_index >= 0:
+        print(f"[itds-eval] shard_index: {args.shard_index} rows [{args.start}, {args.end})", flush=True)
     print(f"[itds-eval] output_path: {output_path}", flush=True)
     correct = 0
 
     with output_path.open("w", encoding="utf-8") as handle:
-        for idx, row in enumerate(tqdm(rows, desc="itds eval")):
+        desc = f"itds eval shard {args.shard_index}" if args.shard_index >= 0 else "itds eval"
+        progress = tqdm(rows, desc=desc, position=args.progress_position, leave=True, dynamic_ncols=True)
+        for local_idx, row in enumerate(progress):
+            idx = args.start + local_idx
             question = _question(row)
             gt = _ground_truth(row)
             prompt = row.get("prompt") if isinstance(row.get("prompt"), str) and row.get("prompt") else build_qwen_boxed_prompt(question)
@@ -257,7 +432,8 @@ def main() -> None:
         "total": len(rows),
         "output_path": str(output_path),
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    summary_name = f"summary_shard_{args.shard_index}.json" if args.shard_index >= 0 else "summary.json"
+    (output_dir / summary_name).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 
 
