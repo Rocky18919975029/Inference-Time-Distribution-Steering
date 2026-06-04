@@ -193,6 +193,7 @@ def _merge_shards(output_dir: Path, eval_name: str, num_shards: int, summary_bas
         "accuracy": correct / total if total else 0.0,
         "correct": correct,
         "total": total,
+        "invalid_rows": sum(int(item.get("invalid_rows", 0)) for item in shard_summaries),
         "output_path": str(merged_output),
         "shards": shard_summaries,
     }
@@ -374,6 +375,7 @@ def main() -> None:
         print(f"[itds-eval] shard_index: {args.shard_index} rows [{args.start}, {args.end})", flush=True)
     print(f"[itds-eval] output_path: {output_path}", flush=True)
     correct = 0
+    invalid_rows = 0
 
     with output_path.open("w", encoding="utf-8") as handle:
         desc = f"itds eval shard {args.shard_index}" if args.shard_index >= 0 else "itds eval"
@@ -383,11 +385,32 @@ def main() -> None:
             question = _question(row)
             gt = _ground_truth(row)
             prompt = row.get("prompt") if isinstance(row.get("prompt"), str) and row.get("prompt") else build_qwen_boxed_prompt(question)
-            if not question or not gt:
-                raise ValueError(
-                    f"Eval row {row.get('idx', idx)!r} normalized to empty question or ground truth. "
-                    f"Available keys: {sorted(row.keys())}"
+            if not question and prompt:
+                question = prompt
+            if not prompt or not gt:
+                invalid_rows += 1
+                print(
+                    f"[itds-eval] warning: skipping invalid eval row {row.get('idx', idx)!r}; "
+                    f"empty prompt/question or ground truth. keys={sorted(row.keys())}",
+                    flush=True,
                 )
+                handle.write(
+                    json.dumps(
+                        {
+                            "idx": row.get("idx", idx),
+                            "question": question,
+                            "gt": gt,
+                            "pred": [""],
+                            "score": [False],
+                            "code": [""],
+                            "finish_reason": ["invalid_eval_row"],
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+                handle.flush()
+                continue
             response = generate_one(
                 model,
                 tokenizer,
@@ -430,6 +453,7 @@ def main() -> None:
         "accuracy": correct / len(rows) if rows else 0.0,
         "correct": correct,
         "total": len(rows),
+        "invalid_rows": invalid_rows,
         "output_path": str(output_path),
     }
     summary_name = f"summary_shard_{args.shard_index}.json" if args.shard_index >= 0 else "summary.json"
